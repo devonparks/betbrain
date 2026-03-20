@@ -5,11 +5,24 @@ import { DailyRecap } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export default function RecapPage() {
-  const [recap] = useState<DailyRecap | null>(null);
+  const [recap, setRecap] = useState<DailyRecap | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(false);
+    async function fetchRecap() {
+      try {
+        const res = await fetch("/api/recap");
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+        setRecap(data);
+      } catch {
+        setError("Could not load recap");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchRecap();
   }, []);
 
   return (
@@ -18,6 +31,12 @@ export default function RecapPage() {
       <p className="text-sm text-text-muted mb-6">
         Yesterday&apos;s results and AI performance tracking
       </p>
+
+      {error && (
+        <div className="bg-accent-red/10 border border-accent-red/30 rounded-card p-4 mb-4">
+          <p className="text-sm text-accent-red">{error}</p>
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-4">

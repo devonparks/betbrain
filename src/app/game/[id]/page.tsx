@@ -13,12 +13,17 @@ import { SafeHailMary } from "@/components/betting/SafeHailMary";
 import { LineupsPanel } from "@/components/analysis/LineupsPanel";
 import { StatsPanel } from "@/components/analysis/StatsPanel";
 import { AnglesCard } from "@/components/analysis/AnglesCard";
+import { PlayerPropsCard } from "@/components/analysis/PlayerPropsCard";
+import { detectValueBets, ValueBet } from "@/lib/value-detector";
+import { useUserStore } from "@/stores/userStore";
 
 export default function GameDeepDive() {
   const params = useParams();
   const searchParams = useSearchParams();
   const gameId = params.id as string;
   const sport = (searchParams.get("sport") ?? "nba") as SportKey;
+  const user = useUserStore((s) => s.user);
+  const [betTracked, setBetTracked] = useState(false);
 
   // Odds data
   const [game, setGame] = useState<OddsResponse | null>(null);
@@ -34,6 +39,14 @@ export default function GameDeepDive() {
   const [playerLogs, setPlayerLogs] = useState<Record<string, ESPNPlayerGameLog[]>>({});
   const [angles, setAngles] = useState<BettingAngle[]>([]);
   const [loadingResearch, setLoadingResearch] = useState(false);
+
+  // Player props from odds API
+  const [playerProps, setPlayerProps] = useState<
+    { player: string; market: string; line: number; overOdds: number; underOdds: number; book: string }[]
+  >([]);
+
+  // Value bets detected from cross-book discrepancies
+  const [valueBets, setValueBets] = useState<ValueBet[]>([]);
 
   // Selected player for stats panel
   const [selectedPlayer, setSelectedPlayer] = useState<{
@@ -81,6 +94,76 @@ export default function GameDeepDive() {
     }
     fetchResearch();
   }, [game, sport]);
+
+  // Fetch player props when game loads
+  useEffect(() => {
+    if (!game) return;
+    async function fetchPlayerProps() {
+      try {
+        const res = await fetch(
+          `/api/odds/player-props?sport=${sport}&gameId=${gameId}`
+        );
+        if (!res.ok) return;
+        const data: OddsResponse[] = await res.json();
+        // Extract prop lines from the response
+        const props: typeof playerProps = [];
+        for (const g of data) {
+          for (const bookmaker of g.bookmakers) {
+            for (const market of bookmaker.markets) {
+              // player_points, player_rebounds, player_assists
+              const marketName = market.key
+                .replace("player_", "")
+                .replace("_alternate", "");
+              const overOutcome = market.outcomes.find(
+                (o) => o.name === "Over"
+              );
+              const underOutcome = market.outcomes.find(
+                (o) => o.name === "Under"
+              );
+              if (overOutcome?.description && overOutcome.point !== undefined) {
+                props.push({
+                  player: overOutcome.description,
+                  market: marketName,
+                  line: overOutcome.point,
+                  overOdds: overOutcome.price,
+                  underOdds: underOutcome?.price ?? 0,
+                  book: bookmaker.title,
+                });
+              }
+            }
+          }
+        }
+        // Deduplicate: keep the best over odds per player+market+line
+        const bestProps = new Map<string, (typeof props)[0]>();
+        for (const p of props) {
+          const key = `${p.player}-${p.market}-${p.line}`;
+          const existing = bestProps.get(key);
+          if (!existing || p.overOdds > existing.overOdds) {
+            bestProps.set(key, p);
+          }
+        }
+        setPlayerProps(Array.from(bestProps.values()));
+      } catch {
+        // Player props are supplementary
+      }
+    }
+    fetchPlayerProps();
+
+    // Detect value bets from odds discrepancies
+    async function fetchValueBets() {
+      try {
+        const res = await fetch(`/api/odds?sport=${sport}`);
+        if (!res.ok) return;
+        const allGames: OddsResponse[] = await res.json();
+        const thisGame = allGames.filter((g) => g.id === gameId);
+        const detected = detectValueBets(thisGame);
+        setValueBets(detected);
+      } catch {
+        // Value detection is supplementary
+      }
+    }
+    fetchValueBets();
+  }, [game, sport, gameId]);
 
   // Handle player click from lineups
   const handlePlayerClick = (player: ESPNPlayer) => {
@@ -282,6 +365,46 @@ export default function GameDeepDive() {
         </div>
       )}
 
+      {/* Player Props with Value Detection */}
+      {playerProps.length > 0 && (
+        <PlayerPropsCard props={playerProps} playerLogs={playerLogs} />
+      )}
+
+      {/* Value Bets from Cross-Book Discrepancies */}
+      {valueBets.length > 0 && (
+        <div className="bg-bg-card border border-accent-green/30 rounded-card p-5">
+          <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
+            Value Bets Detected
+          </h3>
+          <div className="space-y-2">
+            {valueBets.map((vb, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between py-2 px-3 rounded-lg bg-accent-green/5 border border-accent-green/10"
+              >
+                <div>
+                  <span className="text-sm font-medium">{vb.outcome}</span>
+                  <span className="text-xs text-text-muted ml-2">
+                    {vb.market === "h2h" ? "ML" : vb.market === "spreads" ? "Spread" : "Total"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="font-mono text-sm font-bold text-accent-green">
+                      {vb.edge.toFixed(1)}% edge
+                    </div>
+                    <div className="text-[10px] text-text-muted">
+                      {vb.bestBook} · {vb.bestOdds > 0 ? "+" : ""}{vb.bestOdds}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Odds Comparison Table */}
       <OddsTable game={game} />
 
@@ -328,6 +451,37 @@ export default function GameDeepDive() {
             <InjuryImpact injuries={analysis.injuryImpact} />
             {analysis.safeHailMary.safeLeg1.confidence > 0 && (
               <SafeHailMary parlay={analysis.safeHailMary} />
+            )}
+
+            {/* Track Best Bet */}
+            {user && analysis.bestBet && (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/bets", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        userId: user.uid,
+                        bet: analysis.bestBet,
+                      }),
+                    });
+                    if (res.ok) setBetTracked(true);
+                  } catch {
+                    // Best effort
+                  }
+                }}
+                disabled={betTracked}
+                className={
+                  betTracked
+                    ? "w-full py-3 rounded-card text-sm font-medium bg-accent-green/10 text-accent-green border border-accent-green/30"
+                    : "w-full py-3 rounded-card text-sm font-semibold bg-accent-green text-bg-primary hover:bg-accent-green/90 transition-colors"
+                }
+              >
+                {betTracked
+                  ? "Bet Tracked — check your Profile"
+                  : `Track Best Bet: ${analysis.bestBet.pick}`}
+              </button>
             )}
           </div>
         )}

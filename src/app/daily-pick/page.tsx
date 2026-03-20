@@ -5,13 +5,24 @@ import { DailyPick } from "@/lib/types";
 import { ConfidenceMeter } from "@/components/analysis/ConfidenceMeter";
 
 export default function DailyPickPage() {
-  const [pick] = useState<DailyPick | null>(null);
+  const [pick, setPick] = useState<DailyPick | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In production this would fetch from /api/daily-pick
-    // For now, show a placeholder
-    setLoading(false);
+    async function fetchPick() {
+      try {
+        const res = await fetch("/api/daily-pick");
+        if (!res.ok) throw new Error("Failed to fetch");
+        const data = await res.json();
+        setPick(data);
+      } catch {
+        setError("Could not load today's pick");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchPick();
   }, []);
 
   return (
@@ -20,6 +31,12 @@ export default function DailyPickPage() {
       <p className="text-sm text-text-muted mb-6">
         One free pick every day — the highest-confidence bet on the board
       </p>
+
+      {error && (
+        <div className="bg-accent-red/10 border border-accent-red/30 rounded-card p-4 mb-4">
+          <p className="text-sm text-accent-red">{error}</p>
+        </div>
+      )}
 
       {loading ? (
         <div className="bg-bg-card border border-border-subtle rounded-card p-8 animate-pulse">

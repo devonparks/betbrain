@@ -1,8 +1,9 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { BetRecord } from "@/lib/types";
 
 export default function ProfilePage() {
   const { user, isLoading, signIn, signUp, signInWithGoogle, signOut } = useAuth();
@@ -11,6 +12,30 @@ export default function ProfilePage() {
   const [name, setName] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [updatingBet, setUpdatingBet] = useState<string | null>(null);
+
+  const markBetResult = useCallback(
+    async (betId: string, result: "won" | "lost" | "push") => {
+      if (!user) return;
+      setUpdatingBet(betId);
+      try {
+        const res = await fetch("/api/bets", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.uid, betId, result }),
+        });
+        if (res.ok) {
+          // Reload user profile to get updated record
+          window.location.reload();
+        }
+      } catch {
+        // Best effort
+      } finally {
+        setUpdatingBet(null);
+      }
+    },
+    [user]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,21 +194,47 @@ export default function ProfilePage() {
         <h3 className="font-semibold text-sm mb-3">Recent Bets</h3>
         {user.betHistory.length > 0 ? (
           <div className="space-y-2">
-            {user.betHistory.slice(0, 10).map((bet) => (
+            {user.betHistory.slice(0, 20).map((bet: BetRecord) => (
               <div key={bet.id} className="flex items-center justify-between py-2 border-b border-border-subtle last:border-0">
-                <div>
+                <div className="flex-1 min-w-0">
                   <span className="text-sm">{bet.bet.pick}</span>
                   <span className="ml-2 font-mono text-xs text-text-muted">{bet.bet.bestOdds}</span>
+                  <span className="ml-2 text-[10px] text-text-muted">{bet.date}</span>
                 </div>
-                <span className={cn(
-                  "text-xs font-mono font-bold",
-                  bet.result === "won" ? "text-accent-green" :
-                  bet.result === "lost" ? "text-accent-red" :
-                  bet.result === "pending" ? "text-accent-amber" :
-                  "text-text-muted"
-                )}>
-                  {bet.result.toUpperCase()}
-                </span>
+                {bet.result === "pending" ? (
+                  <div className="flex gap-1 ml-2">
+                    <button
+                      onClick={() => markBetResult(bet.id, "won")}
+                      disabled={updatingBet === bet.id}
+                      className="text-[10px] font-bold px-2 py-1 rounded bg-accent-green/20 text-accent-green hover:bg-accent-green/30 transition-colors disabled:opacity-50"
+                    >
+                      W
+                    </button>
+                    <button
+                      onClick={() => markBetResult(bet.id, "lost")}
+                      disabled={updatingBet === bet.id}
+                      className="text-[10px] font-bold px-2 py-1 rounded bg-accent-red/20 text-accent-red hover:bg-accent-red/30 transition-colors disabled:opacity-50"
+                    >
+                      L
+                    </button>
+                    <button
+                      onClick={() => markBetResult(bet.id, "push")}
+                      disabled={updatingBet === bet.id}
+                      className="text-[10px] font-bold px-2 py-1 rounded bg-text-muted/20 text-text-muted hover:bg-text-muted/30 transition-colors disabled:opacity-50"
+                    >
+                      P
+                    </button>
+                  </div>
+                ) : (
+                  <span className={cn(
+                    "text-xs font-mono font-bold ml-2",
+                    bet.result === "won" ? "text-accent-green" :
+                    bet.result === "lost" ? "text-accent-red" :
+                    "text-text-muted"
+                  )}>
+                    {bet.result.toUpperCase()}
+                  </span>
+                )}
               </div>
             ))}
           </div>
