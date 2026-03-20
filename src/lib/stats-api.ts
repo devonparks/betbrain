@@ -423,15 +423,7 @@ export async function getESPNPlayerGameLog(
     const logs: ESPNPlayerGameLog[] = [];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const categories = data?.categories ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const statNames: string[] = categories.flatMap((c: any) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (c.events ?? []).length > 0 ? (c.names ?? []) : []
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const [eventId, event] of Object.entries(events) as [string, any][]) {
+    for (const [, event] of Object.entries(events) as [string, any][]) {
       const stats = event?.stats ?? [];
       if (stats.length === 0) continue;
 

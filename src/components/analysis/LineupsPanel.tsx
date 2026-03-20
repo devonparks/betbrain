@@ -1,7 +1,6 @@
 "use client";
 
 import { ESPNGameData, ESPNPlayer } from "@/lib/stats-api";
-import { Injury } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface LineupsPanelProps {

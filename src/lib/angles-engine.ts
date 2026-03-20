@@ -1,4 +1,4 @@
-import { ESPNPlayerGameLog, ESPNGameData, ESPNPlayer } from "./stats-api";
+import { ESPNPlayerGameLog, ESPNGameData } from "./stats-api";
 
 export interface BettingAngle {
   type:
@@ -202,9 +202,6 @@ export function detectInjuryCascadeAngles(
   const angles: BettingAngle[] = [];
 
   for (const team of [gameData.homeTeam, gameData.awayTeam]) {
-    const injuredStarters = team.players.filter(
-      (p) => p.starter && p.injuries?.status
-    );
     const outPlayers = team.injuries.filter(
       (i) =>
         i.status.toLowerCase().includes("out") ||

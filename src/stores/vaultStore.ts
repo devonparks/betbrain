@@ -13,7 +13,7 @@ interface VaultState {
 
 export const useVaultStore = create<VaultState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       props: [],
 
       addProp: (prop, logs) => {
