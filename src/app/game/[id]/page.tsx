@@ -4,10 +4,15 @@ import { useState, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { OddsResponse, GameAnalysis, SportKey } from "@/lib/types";
 import { extractBestOdds, formatOdds, formatGameTime } from "@/lib/utils";
+import { ESPNGameData, ESPNPlayerGameLog, ESPNPlayer } from "@/lib/stats-api";
+import { BettingAngle } from "@/lib/angles-engine";
 import { OddsTable } from "@/components/games/OddsTable";
 import { AISummary } from "@/components/analysis/AISummary";
 import { InjuryImpact } from "@/components/analysis/InjuryImpact";
 import { SafeHailMary } from "@/components/betting/SafeHailMary";
+import { LineupsPanel } from "@/components/analysis/LineupsPanel";
+import { StatsPanel } from "@/components/analysis/StatsPanel";
+import { AnglesCard } from "@/components/analysis/AnglesCard";
 
 export default function GameDeepDive() {
   const params = useParams();
@@ -15,11 +20,26 @@ export default function GameDeepDive() {
   const gameId = params.id as string;
   const sport = (searchParams.get("sport") ?? "nba") as SportKey;
 
+  // Odds data
   const [game, setGame] = useState<OddsResponse | null>(null);
-  const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const [loadingOdds, setLoadingOdds] = useState(true);
+
+  // AI analysis
+  const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // Research data (ESPN + angles)
+  const [espnData, setEspnData] = useState<ESPNGameData | null>(null);
+  const [playerLogs, setPlayerLogs] = useState<Record<string, ESPNPlayerGameLog[]>>({});
+  const [angles, setAngles] = useState<BettingAngle[]>([]);
+  const [loadingResearch, setLoadingResearch] = useState(false);
+
+  // Selected player for stats panel
+  const [selectedPlayer, setSelectedPlayer] = useState<{
+    name: string;
+    logs: ESPNPlayerGameLog[];
+  } | null>(null);
 
   // Fetch game odds
   useEffect(() => {
@@ -38,6 +58,38 @@ export default function GameDeepDive() {
     fetchGame();
   }, [gameId, sport]);
 
+  // Fetch research data when game loads
+  useEffect(() => {
+    if (!game) return;
+    async function fetchResearch() {
+      setLoadingResearch(true);
+      try {
+        const res = await fetch(
+          `/api/stats/game-research?homeTeam=${encodeURIComponent(game!.home_team)}&awayTeam=${encodeURIComponent(game!.away_team)}&sport=${sport}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.gameData) setEspnData(data.gameData);
+          if (data.playerLogs) setPlayerLogs(data.playerLogs);
+          if (data.angles) setAngles(data.angles);
+        }
+      } catch {
+        // Research data is supplementary — don't block
+      } finally {
+        setLoadingResearch(false);
+      }
+    }
+    fetchResearch();
+  }, [game, sport]);
+
+  // Handle player click from lineups
+  const handlePlayerClick = (player: ESPNPlayer) => {
+    const logs = playerLogs[player.name];
+    if (logs && logs.length > 0) {
+      setSelectedPlayer({ name: player.name, logs });
+    }
+  };
+
   // Fetch AI analysis
   const loadAnalysis = async () => {
     if (!game) return;
@@ -47,7 +99,11 @@ export default function GameDeepDive() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId, sport }),
+        body: JSON.stringify({
+          gameId,
+          sport,
+          angles: angles.map((a) => `${a.title}: ${a.description}`).join("\n"),
+        }),
       });
       if (!res.ok) throw new Error("Analysis failed");
       const data = await res.json();
@@ -61,7 +117,7 @@ export default function GameDeepDive() {
 
   if (loadingOdds) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="animate-pulse space-y-4">
           <div className="h-8 w-64 bg-bg-hover rounded" />
           <div className="h-4 w-48 bg-bg-hover rounded" />
@@ -73,46 +129,158 @@ export default function GameDeepDive() {
 
   if (!game) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-20 text-center">
+      <div className="max-w-5xl mx-auto px-4 py-20 text-center">
         <h2 className="text-lg font-semibold mb-2">Game Not Found</h2>
-        <p className="text-sm text-text-muted">This game may have ended or been removed.</p>
+        <p className="text-sm text-text-muted">
+          This game may have ended or been removed.
+        </p>
       </div>
     );
   }
 
   const bestOdds = extractBestOdds(game);
+  const hasFiniteOdds = (n: number) => isFinite(n) && n !== 0;
+
+  // Get opponent abbreviation for selected player
+  const getOpponentAbbr = (playerName: string) => {
+    if (!espnData) return undefined;
+    const isHome = espnData.homeTeam.players.some((p) => p.name === playerName);
+    return isHome
+      ? espnData.awayTeam.abbreviation
+      : espnData.homeTeam.abbreviation;
+  };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       {/* Game Header */}
       <div className="bg-bg-card border border-border-subtle rounded-card p-6">
-        <div className="text-xs text-text-muted mb-3">
-          {formatGameTime(game.commence_time)}
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-xs text-text-muted">
+            {formatGameTime(game.commence_time)}
+          </div>
+          {espnData?.venue && (
+            <div className="text-xs text-text-muted">{espnData.venue}</div>
+          )}
         </div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">{game.away_team}</h1>
+            <div className="flex items-center gap-2 mb-1">
+              <h1 className="text-xl font-bold">{game.away_team}</h1>
+              {espnData?.awayTeam.record && (
+                <span className="text-sm text-text-muted">
+                  ({espnData.awayTeam.record})
+                </span>
+              )}
+            </div>
             <span className="text-text-muted text-sm">@</span>
-            <h1 className="text-xl font-bold">{game.home_team}</h1>
+            <div className="flex items-center gap-2 mt-1">
+              <h1 className="text-xl font-bold">{game.home_team}</h1>
+              {espnData?.homeTeam.record && (
+                <span className="text-sm text-text-muted">
+                  ({espnData.homeTeam.record})
+                </span>
+              )}
+            </div>
           </div>
           <div className="text-right space-y-1">
-            <div className="font-mono text-sm">
-              <span className="text-text-muted mr-2">ML</span>
-              <span className="text-accent-green">{formatOdds(bestOdds.moneyline.home.odds)}</span>
-              <span className="text-text-muted mx-1">/</span>
-              <span>{formatOdds(bestOdds.moneyline.away.odds)}</span>
-            </div>
-            <div className="font-mono text-sm">
-              <span className="text-text-muted mr-2">Spread</span>
-              <span>{bestOdds.spread.home.point > 0 ? "+" : ""}{bestOdds.spread.home.point}</span>
-            </div>
-            <div className="font-mono text-sm">
-              <span className="text-text-muted mr-2">O/U</span>
-              <span>{bestOdds.total.over.point}</span>
-            </div>
+            {hasFiniteOdds(bestOdds.moneyline.home.odds) && (
+              <div className="font-mono text-sm">
+                <span className="text-text-muted mr-2">ML</span>
+                <span className="text-accent-green">
+                  {formatOdds(bestOdds.moneyline.home.odds)}
+                </span>
+                <span className="text-text-muted mx-1">/</span>
+                <span>{formatOdds(bestOdds.moneyline.away.odds)}</span>
+              </div>
+            )}
+            {hasFiniteOdds(bestOdds.spread.home.odds) && (
+              <div className="font-mono text-sm">
+                <span className="text-text-muted mr-2">Spread</span>
+                <span>
+                  {bestOdds.spread.home.point > 0 ? "+" : ""}
+                  {bestOdds.spread.home.point}
+                </span>
+              </div>
+            )}
+            {hasFiniteOdds(bestOdds.total.over.odds) && (
+              <div className="font-mono text-sm">
+                <span className="text-text-muted mr-2">O/U</span>
+                <span>{bestOdds.total.over.point}</span>
+              </div>
+            )}
           </div>
         </div>
+        {espnData?.broadcast && (
+          <div className="mt-3 text-xs text-text-muted">
+            TV: {espnData.broadcast}
+          </div>
+        )}
       </div>
+
+      {/* Starting Lineups & Injuries */}
+      {loadingResearch && (
+        <div className="bg-bg-card border border-border-subtle rounded-card p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-accent-green border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm text-text-secondary">
+              Loading lineups, injuries, and stats...
+            </span>
+          </div>
+        </div>
+      )}
+
+      {espnData && (
+        <LineupsPanel gameData={espnData} onPlayerClick={handlePlayerClick} />
+      )}
+
+      {/* Betting Angles */}
+      {angles.length > 0 && <AnglesCard angles={angles} />}
+
+      {/* Player Stats Panel (click a player to see their logs) */}
+      {selectedPlayer && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold">Player Research</h3>
+            <button
+              onClick={() => setSelectedPlayer(null)}
+              className="text-xs text-text-muted hover:text-accent-red"
+            >
+              Close
+            </button>
+          </div>
+          <StatsPanel
+            playerName={selectedPlayer.name}
+            gameLogs={selectedPlayer.logs}
+            opponentAbbr={getOpponentAbbr(selectedPlayer.name)}
+          />
+        </div>
+      )}
+
+      {/* Quick player buttons — click to load stats */}
+      {Object.keys(playerLogs).length > 0 && !selectedPlayer && (
+        <div className="bg-bg-card border border-border-subtle rounded-card p-4">
+          <h3 className="font-semibold text-sm mb-3">
+            Player Research — tap a player
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(playerLogs).map(([name, logs]) => (
+              <button
+                key={name}
+                onClick={() => setSelectedPlayer({ name, logs })}
+                className="px-3 py-1.5 bg-bg-hover border border-border-subtle rounded-lg text-xs font-medium hover:border-accent-green transition-colors"
+              >
+                {name}
+                <span className="ml-1.5 text-text-muted font-mono">
+                  {(
+                    logs.slice(0, 10).reduce((s, g) => s + g.points, 0) /
+                    Math.min(logs.length, 10)
+                  ).toFixed(1)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Odds Comparison Table */}
       <OddsTable game={game} />
@@ -125,6 +293,11 @@ export default function GameDeepDive() {
             className="w-full bg-accent-green/10 border border-accent-green/30 text-accent-green rounded-card py-4 font-semibold text-sm hover:bg-accent-green/20 transition-colors"
           >
             Generate AI Analysis
+            {angles.length > 0 && (
+              <span className="block text-xs font-normal mt-0.5 text-accent-green/70">
+                Includes {angles.length} detected betting angle{angles.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </button>
         )}
 
@@ -132,7 +305,7 @@ export default function GameDeepDive() {
           <div className="bg-bg-card border border-border-subtle rounded-card p-8 text-center">
             <div className="w-8 h-8 border-2 border-accent-green border-t-transparent rounded-full animate-spin mx-auto mb-3" />
             <p className="text-sm text-text-secondary">
-              Analyzing game data, odds, and matchup context...
+              Analyzing game data, odds, injuries, and {angles.length} betting angles...
             </p>
           </div>
         )}

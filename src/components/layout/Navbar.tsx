@@ -90,6 +90,33 @@ export function Navbar() {
             Groups
           </Link>
           <Link
+            href="/vault"
+            className={cn(
+              "transition-colors",
+              pathname === "/vault" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
+            )}
+          >
+            Vault
+          </Link>
+          <Link
+            href="/grader"
+            className={cn(
+              "transition-colors",
+              pathname === "/grader" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
+            )}
+          >
+            Grader
+          </Link>
+          <Link
+            href="/chat"
+            className={cn(
+              "transition-colors",
+              pathname === "/chat" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
+            )}
+          >
+            AI Chat
+          </Link>
+          <Link
             href="/alerts"
             className={cn(
               "transition-colors",

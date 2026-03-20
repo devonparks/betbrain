@@ -9,6 +9,10 @@ interface GameCardProps {
   game: GameCardData;
 }
 
+function hasOdds(odds: number): boolean {
+  return isFinite(odds) && odds !== 0;
+}
+
 export function GameCard({ game }: GameCardProps) {
   const live = isGameLive(game.commenceTime);
 
@@ -81,33 +85,51 @@ export function GameCard({ game }: GameCardProps) {
           {/* Spread */}
           <div className="bg-bg-hover rounded-lg p-2 text-center">
             <div className="text-[10px] text-text-muted mb-0.5">SPREAD</div>
-            <div className="font-mono text-xs font-medium">
-              {game.bestOdds.spread.home.point > 0 ? "+" : ""}
-              {game.bestOdds.spread.home.point}
-            </div>
-            <div className="font-mono text-[10px] text-text-secondary">
-              {formatOdds(game.bestOdds.spread.home.odds)}
-            </div>
+            {hasOdds(game.bestOdds.spread.home.odds) ? (
+              <>
+                <div className="font-mono text-xs font-medium">
+                  {game.bestOdds.spread.home.point > 0 ? "+" : ""}
+                  {game.bestOdds.spread.home.point}
+                </div>
+                <div className="font-mono text-[10px] text-text-secondary">
+                  {formatOdds(game.bestOdds.spread.home.odds)}
+                </div>
+              </>
+            ) : (
+              <div className="font-mono text-xs text-text-muted">—</div>
+            )}
           </div>
           {/* Total */}
           <div className="bg-bg-hover rounded-lg p-2 text-center">
             <div className="text-[10px] text-text-muted mb-0.5">TOTAL</div>
-            <div className="font-mono text-xs font-medium">
-              O/U {game.bestOdds.total.over.point}
-            </div>
-            <div className="font-mono text-[10px] text-text-secondary">
-              {formatOdds(game.bestOdds.total.over.odds)}
-            </div>
+            {hasOdds(game.bestOdds.total.over.odds) ? (
+              <>
+                <div className="font-mono text-xs font-medium">
+                  O/U {game.bestOdds.total.over.point}
+                </div>
+                <div className="font-mono text-[10px] text-text-secondary">
+                  {formatOdds(game.bestOdds.total.over.odds)}
+                </div>
+              </>
+            ) : (
+              <div className="font-mono text-xs text-text-muted">—</div>
+            )}
           </div>
           {/* Moneyline */}
           <div className="bg-bg-hover rounded-lg p-2 text-center">
             <div className="text-[10px] text-text-muted mb-0.5">ML</div>
-            <div className="font-mono text-xs font-medium">
-              {formatOdds(game.bestOdds.moneyline.home.odds)}
-            </div>
-            <div className="text-[10px] text-accent-green">
-              {game.bestOdds.moneyline.home.book}
-            </div>
+            {hasOdds(game.bestOdds.moneyline.home.odds) ? (
+              <>
+                <div className="font-mono text-xs font-medium">
+                  {formatOdds(game.bestOdds.moneyline.home.odds)}
+                </div>
+                <div className="text-[10px] text-accent-green">
+                  {game.bestOdds.moneyline.home.book}
+                </div>
+              </>
+            ) : (
+              <div className="font-mono text-xs text-text-muted">—</div>
+            )}
           </div>
         </div>
 

@@ -235,6 +235,361 @@ export async function getGameNarrative(
   }
 }
 
+// ============ ESPN Enhanced Endpoints ============
+
+export interface ESPNPlayer {
+  id: string;
+  name: string;
+  position: string;
+  jersey: string;
+  starter: boolean;
+  stats?: Record<string, string>;
+  headshot?: string;
+  injuries?: { status: string; detail: string };
+}
+
+export interface ESPNTeamData {
+  id: string;
+  name: string;
+  abbreviation: string;
+  record: string;
+  logo: string;
+  players: ESPNPlayer[];
+  injuries: Injury[];
+}
+
+export interface ESPNGameData {
+  id: string;
+  status: string; // "pre" | "in" | "post"
+  homeTeam: ESPNTeamData;
+  awayTeam: ESPNTeamData;
+  venue: string;
+  broadcast: string;
+  odds?: { spread: string; overUnder: string; details: string };
+  lastFiveGames?: { home: string[]; away: string[] };
+  leaders?: {
+    home: { name: string; stat: string; value: string }[];
+    away: { name: string; stat: string; value: string }[];
+  };
+}
+
+export interface ESPNPlayerGameLog {
+  date: string;
+  opponent: string;
+  result: string;
+  minutes: number;
+  points: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  fgm: number;
+  fga: number;
+  fg3m: number;
+  fg3a: number;
+  ftm: number;
+  fta: number;
+  plusMinus: number;
+}
+
+/**
+ * Get full game data from ESPN including rosters, injuries, and odds
+ */
+export async function getESPNGameData(
+  sportKey: string,
+  espnGameId: string
+): Promise<ESPNGameData | null> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const summary = (await getESPNGameSummary(sportKey, espnGameId)) as any;
+
+    const header = summary?.header;
+    const competitions = header?.competitions?.[0];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parseTeam = (competitor: any, idx: number): ESPNTeamData => {
+      const team = competitor?.team;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rosterData = summary?.rosters?.[idx]?.roster ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const players: ESPNPlayer[] = rosterData.map((p: any) => ({
+        id: p.athlete?.id ?? "",
+        name: p.athlete?.displayName ?? "",
+        position: p.athlete?.position?.abbreviation ?? "",
+        jersey: p.athlete?.jersey ?? "",
+        starter: p.starter ?? false,
+        headshot: p.athlete?.headshot?.href,
+        injuries: p.athlete?.injuries?.[0]
+          ? {
+              status: p.athlete.injuries[0].status,
+              detail: p.athlete.injuries[0].details?.detail ?? "",
+            }
+          : undefined,
+      }));
+
+      return {
+        id: team?.id ?? "",
+        name: team?.displayName ?? "",
+        abbreviation: team?.abbreviation ?? "",
+        record: competitor?.record?.[0]?.displayValue ?? "",
+        logo: team?.logos?.[0]?.href ?? "",
+        players,
+        injuries: [],
+      };
+    };
+
+    const competitors = competitions?.competitors ?? [];
+    const homeComp = competitors.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c: any) => c.homeAway === "home"
+    );
+    const awayComp = competitors.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c: any) => c.homeAway === "away"
+    );
+    const homeIdx = competitors.indexOf(homeComp);
+    const awayIdx = competitors.indexOf(awayComp);
+
+    const homeTeam = parseTeam(homeComp, homeIdx);
+    const awayTeam = parseTeam(awayComp, awayIdx);
+
+    // Get injuries for both teams
+    const [homeInjuries, awayInjuries] = await Promise.all([
+      getTeamInjuries(sportKey, homeTeam.id),
+      getTeamInjuries(sportKey, awayTeam.id),
+    ]);
+    homeTeam.injuries = homeInjuries;
+    awayTeam.injuries = awayInjuries;
+
+    // Parse odds from ESPN
+    const pickcenter = summary?.pickcenter?.[0];
+    const odds = pickcenter
+      ? {
+          spread: pickcenter.details ?? "",
+          overUnder: pickcenter.overUnder?.toString() ?? "",
+          details: pickcenter.provider?.name ?? "",
+        }
+      : undefined;
+
+    // Parse leaders
+    const leadersData = summary?.leaders;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parseLeaders = (teamLeaders: any) => {
+      if (!teamLeaders?.leaders) return [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return teamLeaders.leaders.slice(0, 3).map((l: any) => ({
+        name: l.leaders?.[0]?.athlete?.displayName ?? "",
+        stat: l.displayName ?? "",
+        value: l.leaders?.[0]?.displayValue ?? "",
+      }));
+    };
+
+    return {
+      id: espnGameId,
+      status: header?.competitions?.[0]?.status?.type?.state ?? "pre",
+      homeTeam,
+      awayTeam,
+      venue: competitions?.venue?.fullName ?? "",
+      broadcast: competitions?.broadcasts?.[0]?.media?.shortName ?? "",
+      odds,
+      leaders: leadersData
+        ? {
+            home: parseLeaders(leadersData[homeIdx]),
+            away: parseLeaders(leadersData[awayIdx]),
+          }
+        : undefined,
+    };
+  } catch (err) {
+    console.error("ESPN game data error:", err);
+    return null;
+  }
+}
+
+/**
+ * Get player game log from ESPN
+ */
+export async function getESPNPlayerGameLog(
+  playerId: string,
+  season?: number
+): Promise<ESPNPlayerGameLog[]> {
+  try {
+    const yr = season ?? new Date().getFullYear();
+    const { data } = await axios.get(
+      `https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}/gamelog?season=${yr}`
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const events = data?.events ?? {};
+    const logs: ESPNPlayerGameLog[] = [];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const categories = data?.categories ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const statNames: string[] = categories.flatMap((c: any) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c.events ?? []).length > 0 ? (c.names ?? []) : []
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const [eventId, event] of Object.entries(events) as [string, any][]) {
+      const stats = event?.stats ?? [];
+      if (stats.length === 0) continue;
+
+      logs.push({
+        date: event?.gameDate ?? "",
+        opponent: event?.opponent?.abbreviation ?? "",
+        result: event?.gameResult ?? "",
+        minutes: parseFloat(stats[0]) || 0,
+        fgm: parseFloat(stats[1]) || 0,
+        fga: parseFloat(stats[2]) || 0,
+        fg3m: parseFloat(stats[4]) || 0,
+        fg3a: parseFloat(stats[5]) || 0,
+        ftm: parseFloat(stats[7]) || 0,
+        fta: parseFloat(stats[8]) || 0,
+        rebounds: parseFloat(stats[10]) || 0,
+        assists: parseFloat(stats[11]) || 0,
+        steals: parseFloat(stats[13]) || 0,
+        blocks: parseFloat(stats[12]) || 0,
+        turnovers: parseFloat(stats[14]) || 0,
+        points: parseFloat(stats[15]) || 0,
+        plusMinus: parseFloat(stats[16]) || 0,
+      });
+    }
+
+    return logs.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get player stats overview from ESPN
+ */
+export async function getESPNPlayerStats(
+  playerId: string
+): Promise<{
+  seasonAverages: Record<string, string>;
+  splits: { home: Record<string, string>; away: Record<string, string> };
+} | null> {
+  try {
+    const { data } = await axios.get(
+      `https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}/stats`
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const categories = data?.categories ?? [];
+    const seasonAverages: Record<string, string> = {};
+    const home: Record<string, string> = {};
+    const away: Record<string, string> = {};
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const cat of categories) {
+      const names: string[] = cat.names ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const totals = cat.totals ?? [];
+      names.forEach((name: string, i: number) => {
+        if (totals[i] !== undefined) seasonAverages[name] = totals[i];
+      });
+    }
+
+    return { seasonAverages, splits: { home, away } };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get today's ESPN scoreboard with team records, game IDs, etc.
+ */
+export async function getESPNTodayGames(sportKey: string): Promise<
+  {
+    espnGameId: string;
+    homeTeam: { name: string; abbreviation: string; record: string; id: string };
+    awayTeam: { name: string; abbreviation: string; record: string; id: string };
+    status: string;
+    startTime: string;
+    venue: string;
+  }[]
+> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scoreboard = (await getESPNScoreboard(sportKey)) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (scoreboard?.events ?? []).map((event: any) => {
+      const competition = event.competitions?.[0];
+      const competitors = competition?.competitors ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const home = competitors.find((c: any) => c.homeAway === "home");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const away = competitors.find((c: any) => c.homeAway === "away");
+      return {
+        espnGameId: event.id,
+        homeTeam: {
+          name: home?.team?.displayName ?? "",
+          abbreviation: home?.team?.abbreviation ?? "",
+          record: home?.records?.[0]?.summary ?? "",
+          id: home?.team?.id ?? "",
+        },
+        awayTeam: {
+          name: away?.team?.displayName ?? "",
+          abbreviation: away?.team?.abbreviation ?? "",
+          record: away?.records?.[0]?.summary ?? "",
+          id: away?.team?.id ?? "",
+        },
+        status: event.status?.type?.state ?? "pre",
+        startTime: event.date ?? "",
+        venue: competition?.venue?.fullName ?? "",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Find ESPN game ID from team names (matches Odds API game to ESPN game)
+ */
+export async function findESPNGameId(
+  sportKey: string,
+  homeTeam: string,
+  awayTeam: string
+): Promise<string | null> {
+  const games = await getESPNTodayGames(sportKey);
+  const match = games.find(
+    (g) =>
+      (g.homeTeam.name.includes(homeTeam) || homeTeam.includes(g.homeTeam.name) ||
+       g.homeTeam.abbreviation === homeTeam) &&
+      (g.awayTeam.name.includes(awayTeam) || awayTeam.includes(g.awayTeam.name) ||
+       g.awayTeam.abbreviation === awayTeam)
+  );
+  return match?.espnGameId ?? null;
+}
+
+/**
+ * Search for ESPN player by name and get their ID
+ */
+export async function searchESPNPlayer(
+  name: string
+): Promise<{ id: string; name: string; team: string; position: string } | null> {
+  try {
+    const { data } = await axios.get(
+      `https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes?limit=5&search=${encodeURIComponent(name)}`
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const athlete = data?.items?.[0] ?? data?.athletes?.[0];
+    if (!athlete) return null;
+    return {
+      id: athlete.id,
+      name: athlete.displayName ?? athlete.fullName ?? name,
+      team: athlete.team?.abbreviation ?? "",
+      position: athlete.position?.abbreviation ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getLineupStatus(
   sportKey: string,
   gameId: string
