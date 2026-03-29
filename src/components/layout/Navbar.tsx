@@ -54,6 +54,15 @@ export function Navbar() {
             Today
           </Link>
           <Link
+            href="/predictions"
+            className={cn(
+              "transition-colors",
+              pathname === "/predictions" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
+            )}
+          >
+            Predictions
+          </Link>
+          <Link
             href="/builder"
             className={cn(
               "transition-colors",

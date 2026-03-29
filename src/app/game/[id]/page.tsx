@@ -14,8 +14,10 @@ import { LineupsPanel } from "@/components/analysis/LineupsPanel";
 import { StatsPanel } from "@/components/analysis/StatsPanel";
 import { AnglesCard } from "@/components/analysis/AnglesCard";
 import { PlayerPropsCard } from "@/components/analysis/PlayerPropsCard";
+import { BettingWindowTimer } from "@/components/games/BettingWindowTimer";
 import { detectValueBets, ValueBet } from "@/lib/value-detector";
 import { useUserStore } from "@/stores/userStore";
+import { OUPrediction } from "@/lib/prediction-engine";
 
 export default function GameDeepDive() {
   const params = useParams();
@@ -47,6 +49,10 @@ export default function GameDeepDive() {
 
   // Value bets detected from cross-book discrepancies
   const [valueBets, setValueBets] = useState<ValueBet[]>([]);
+
+  // O/U Predictions for this game
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [ouPredictions, setOuPredictions] = useState<OUPrediction[]>([]);
 
   // Selected player for stats panel
   const [selectedPlayer, setSelectedPlayer] = useState<{
@@ -148,6 +154,19 @@ export default function GameDeepDive() {
       }
     }
     fetchPlayerProps();
+
+    // Fetch O/U predictions for this game
+    async function fetchOUPredictions() {
+      try {
+        const res = await fetch(`/api/predict-ou?sport=${sport}&gameId=${gameId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setOuPredictions(data.predictions ?? []);
+      } catch {
+        // Predictions are supplementary
+      }
+    }
+    fetchOUPredictions();
 
     // Detect value bets from odds discrepancies
     async function fetchValueBets() {
@@ -298,6 +317,9 @@ export default function GameDeepDive() {
             TV: {espnData.broadcast}
           </div>
         )}
+        <div className="mt-3">
+          <BettingWindowTimer commenceTime={game.commence_time} />
+        </div>
       </div>
 
       {/* Starting Lineups & Injuries */}

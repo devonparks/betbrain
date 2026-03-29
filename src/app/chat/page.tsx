@@ -10,8 +10,10 @@ interface Message {
 
 const QUICK_PROMPTS = [
   "Who's the best bet tonight?",
-  "Should I take the over on this game?",
-  "What does +EV mean?",
+  "Build me a safe hail mary for tonight",
+  "Compare FanDuel vs DraftKings odds for tonight's games",
+  "What happens when Anthony Edwards is out?",
+  "Should I take Booker over 26.5?",
   "Help me build a 3-leg parlay",
 ];
 

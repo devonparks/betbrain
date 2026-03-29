@@ -3,16 +3,55 @@
 import { useState } from "react";
 import { useOdds } from "@/hooks/useOdds";
 import { useUserStore } from "@/stores/userStore";
+import { useBlacklistStore } from "@/stores/blacklistStore";
 import { useBetSlipStore } from "@/stores/betSlipStore";
 import { BetRecommendation, OddsResponse } from "@/lib/types";
+import { PredictionParlay } from "@/lib/prediction-engine";
 import { formatOdds, extractBestOdds, cn } from "@/lib/utils";
+import { SendToFanDuel } from "@/components/betting/SendToFanDuel";
 
 export default function ParlayBuilder() {
   const { selectedSport } = useUserStore();
+  const { players: blacklist } = useBlacklistStore();
   const { rawOdds, loading } = useOdds(selectedSport);
   const { legs, addLeg, removeLeg, clearSlip, stake, setStake, getCombinedOdds, getPayout } =
     useBetSlipStore();
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [hailMary, setHailMary] = useState<PredictionParlay | null>(null);
+  const [loadingHailMary, setLoadingHailMary] = useState(false);
+
+  async function generateHailMary() {
+    setLoadingHailMary(true);
+    try {
+      const blParam = blacklist.length > 0 ? `&blacklist=${blacklist.join(",")}` : "";
+      const res = await fetch(`/api/predict-ou?sport=${selectedSport}${blParam}`);
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setHailMary(data.hailMary ?? null);
+      // Auto-add hail mary legs to slip
+      if (data.hailMary?.legs) {
+        clearSlip();
+        for (const leg of data.hailMary.legs) {
+          const odds = leg.prediction === "OVER" ? leg.overOdds : leg.underOdds;
+          addLeg({
+            type: "player_prop",
+            pick: `${leg.player} ${leg.prediction} ${leg.line} ${leg.stat}`,
+            bestBook: leg.book,
+            bestOdds: formatOdds(odds),
+            confidence: leg.confidence,
+            reasoning: leg.reasoning,
+            impliedProbability: 0,
+            estimatedTrueProbability: leg.confidence / 100,
+            edge: 0,
+          });
+        }
+      }
+    } catch {
+      // Failed silently
+    } finally {
+      setLoadingHailMary(false);
+    }
+  }
 
   function addBetFromOdds(
     game: OddsResponse,
@@ -43,9 +82,43 @@ export default function ParlayBuilder() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
       <h1 className="text-2xl font-bold tracking-tight mb-1">Parlay Builder</h1>
-      <p className="text-sm text-text-muted mb-6">
+      <p className="text-sm text-text-muted mb-4">
         Build custom parlays with AI-assisted feedback
       </p>
+
+      {/* Quick actions */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <button
+          onClick={generateHailMary}
+          disabled={loadingHailMary}
+          className={cn(
+            "px-4 py-2.5 rounded-lg text-sm font-semibold transition-all",
+            "bg-accent-amber/10 border border-accent-amber/30 text-accent-amber hover:bg-accent-amber/20",
+            loadingHailMary && "opacity-50"
+          )}
+        >
+          {loadingHailMary ? "Generating..." : "Generate Safe Hail Mary"}
+        </button>
+        <a
+          href="/predictions"
+          className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-accent-green/10 border border-accent-green/30 text-accent-green hover:bg-accent-green/20 transition-all"
+        >
+          O/U Predictions
+        </a>
+      </div>
+
+      {/* Hail Mary result */}
+      {hailMary && (
+        <div className="bg-bg-card border border-accent-amber/30 rounded-card p-5 mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold text-sm text-accent-amber">Safe Hail Mary — Added to Slip</h3>
+            <div className="font-mono text-accent-green font-bold">
+              {hailMary.combinedOdds > 0 ? "+" : ""}{hailMary.combinedOdds}
+            </div>
+          </div>
+          <p className="text-xs text-text-secondary">{hailMary.strategy}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Game list */}
@@ -248,6 +321,9 @@ export default function ParlayBuilder() {
                     </div>
                   </div>
                 </div>
+
+                {/* Send to FanDuel */}
+                <SendToFanDuel />
               </>
             )}
           </div>
