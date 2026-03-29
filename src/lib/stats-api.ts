@@ -418,34 +418,64 @@ export async function getESPNPlayerGameLog(
     const { data } = await axios.get(
       `https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}/gamelog?season=${yr}`
     );
+
+    // Build a map of eventId -> game metadata from data.events
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const events = data?.events ?? {};
+    const eventsMap: Record<string, any> = data?.events ?? {};
+
+    // Extract stats from seasonTypes -> categories -> events (where stats actually live)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const seasonTypes: any[] = data?.seasonTypes ?? [];
     const logs: ESPNPlayerGameLog[] = [];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const [, event] of Object.entries(events) as [string, any][]) {
-      const stats = event?.stats ?? [];
-      if (stats.length === 0) continue;
+    // Helper: parse "made-attempted" string like "11-22" into [made, attempted]
+    const parseMadeAttempted = (s: string): [number, number] => {
+      const parts = s.split("-");
+      return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0];
+    };
 
-      logs.push({
-        date: event?.gameDate ?? "",
-        opponent: event?.opponent?.abbreviation ?? "",
-        result: event?.gameResult ?? "",
-        minutes: parseFloat(stats[0]) || 0,
-        fgm: parseFloat(stats[1]) || 0,
-        fga: parseFloat(stats[2]) || 0,
-        fg3m: parseFloat(stats[4]) || 0,
-        fg3a: parseFloat(stats[5]) || 0,
-        ftm: parseFloat(stats[7]) || 0,
-        fta: parseFloat(stats[8]) || 0,
-        rebounds: parseFloat(stats[10]) || 0,
-        assists: parseFloat(stats[11]) || 0,
-        steals: parseFloat(stats[13]) || 0,
-        blocks: parseFloat(stats[12]) || 0,
-        turnovers: parseFloat(stats[14]) || 0,
-        points: parseFloat(stats[15]) || 0,
-        plusMinus: parseFloat(stats[16]) || 0,
-      });
+    for (const st of seasonTypes) {
+      // Only use regular season data
+      if (st.displayName && !st.displayName.includes("Regular")) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const categories: any[] = st.categories ?? [];
+      for (const cat of categories) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const catEvents: any[] = cat.events ?? [];
+        for (const ev of catEvents) {
+          const stats: string[] = ev.stats ?? [];
+          if (stats.length < 14) continue;
+
+          const eventId = ev.eventId ?? "";
+          const meta = eventsMap[eventId] ?? {};
+          const opponent = meta?.opponent ?? meta?.atVs;
+
+          // ESPN stat layout: [MIN, FG, FG%, 3PT, 3P%, FT, FT%, REB, AST, BLK, STL, PF, TO, PTS]
+          const [fgm, fga] = parseMadeAttempted(stats[1] ?? "0-0");
+          const [fg3m, fg3a] = parseMadeAttempted(stats[3] ?? "0-0");
+          const [ftm, fta] = parseMadeAttempted(stats[5] ?? "0-0");
+
+          logs.push({
+            date: meta?.gameDate ?? "",
+            opponent: typeof opponent === "object" ? opponent?.abbreviation ?? "" : String(opponent ?? ""),
+            result: meta?.gameResult ?? "",
+            minutes: parseFloat(stats[0]) || 0,
+            fgm,
+            fga,
+            fg3m,
+            fg3a,
+            ftm,
+            fta,
+            rebounds: parseFloat(stats[7]) || 0,
+            assists: parseFloat(stats[8]) || 0,
+            blocks: parseFloat(stats[9]) || 0,
+            steals: parseFloat(stats[10]) || 0,
+            turnovers: parseFloat(stats[12]) || 0,
+            points: parseFloat(stats[13]) || 0,
+            plusMinus: 0, // Not in this stat layout
+          });
+        }
+      }
     }
 
     return logs.sort(
@@ -548,13 +578,28 @@ export async function findESPNGameId(
   awayTeam: string
 ): Promise<string | null> {
   const games = await getESPNTodayGames(sportKey);
-  const match = games.find(
+
+  // Helper: check if team names match (last word comparison)
+  const fuzzyMatch = (a: string, b: string) => {
+    const aLast = a.split(" ").pop()?.toLowerCase() ?? "";
+    const bLast = b.split(" ").pop()?.toLowerCase() ?? "";
+    return aLast === bLast || a.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(a.toLowerCase());
+  };
+
+  // Try matching both teams first
+  let match = games.find(
     (g) =>
-      (g.homeTeam.name.includes(homeTeam) || homeTeam.includes(g.homeTeam.name) ||
-       g.homeTeam.abbreviation === homeTeam) &&
-      (g.awayTeam.name.includes(awayTeam) || awayTeam.includes(g.awayTeam.name) ||
-       g.awayTeam.abbreviation === awayTeam)
+      (fuzzyMatch(g.homeTeam.name, homeTeam) || g.homeTeam.abbreviation === homeTeam) &&
+      (fuzzyMatch(g.awayTeam.name, awayTeam) || g.awayTeam.abbreviation === awayTeam)
   );
+
+  // Fallback: match on just the home team
+  if (!match) {
+    match = games.find(
+      (g) => fuzzyMatch(g.homeTeam.name, homeTeam) || fuzzyMatch(g.awayTeam.name, homeTeam)
+    );
+  }
+
   return match?.espnGameId ?? null;
 }
 

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import axios from "axios";
 import { getOdds, getPlayerProps } from "@/lib/odds-api";
 import {
   getESPNTodayGames,
-  getESPNGameData,
   findESPNGameId,
   getESPNPlayerGameLog,
   searchESPNPlayer,
@@ -230,38 +230,29 @@ async function generateSyntheticProps(
     gamesToProcess.map(async (game) => {
       try {
         // Step 1: Match this Odds API game to an ESPN game
-        const espnMatch = espnGames.find(
+        // Try both-team match first, then single-team match
+        let espnMatch = espnGames.find(
           (eg) =>
             matchTeamName(game.home_team, eg.homeTeam.name) &&
             matchTeamName(game.away_team, eg.awayTeam.name)
         );
+        if (!espnMatch) {
+          // Fallback: match on either team name
+          espnMatch = espnGames.find(
+            (eg) =>
+              matchTeamName(game.home_team, eg.homeTeam.name) ||
+              matchTeamName(game.away_team, eg.awayTeam.name) ||
+              matchTeamName(game.home_team, eg.awayTeam.name) ||
+              matchTeamName(game.away_team, eg.homeTeam.name)
+          );
+        }
 
-        // Try exact match first, then broader match
         let espnGameId = espnMatch?.espnGameId ?? null;
         if (!espnGameId) {
-          // Try findESPNGameId which does its own fuzzy matching
-          espnGameId = await findESPNGameId(
-            sport,
-            game.home_team,
-            game.away_team
-          );
+          espnGameId = await findESPNGameId(sport, game.home_team, game.away_team);
         }
 
-        if (!espnGameId) {
-          console.warn(
-            `Could not match ESPN game for: ${game.away_team} @ ${game.home_team}`
-          );
-          return [];
-        }
-
-        // Step 2: Get ESPN game data with rosters
-        const espnGameData = await getESPNGameData(sport, espnGameId);
-        if (!espnGameData) {
-          console.warn(`No ESPN game data for ESPN ID: ${espnGameId}`);
-          return [];
-        }
-
-        // Step 3: Get spread for blowout detection
+        // Step 2: Get spread for blowout detection
         const spreadMarket = game.bookmakers[0]?.markets.find(
           (m) => m.key === "spreads"
         );
@@ -269,36 +260,59 @@ async function generateSyntheticProps(
           (o) => o.name === game.home_team
         )?.point;
 
-        // Step 4: Collect key players from both teams
-        // Prioritize starters, then fill with remaining roster up to MAX_PLAYERS_PER_GAME
-        const homePlayers = [
-          ...espnGameData.homeTeam.players.filter((p) => p.starter),
-          ...espnGameData.homeTeam.players.filter((p) => !p.starter),
-        ]
-          .filter((p) => p.id && p.name)
-          .slice(0, Math.ceil(MAX_PLAYERS_PER_GAME / 2));
+        // Step 3: Get players from ESPN team rosters (works even before game time)
+        // Use the matched ESPN game to get team IDs, or search by name
+        const homeTeamId = espnMatch?.homeTeam.id;
+        const awayTeamId = espnMatch?.awayTeam.id;
 
-        const awayPlayers = [
-          ...espnGameData.awayTeam.players.filter((p) => p.starter),
-          ...espnGameData.awayTeam.players.filter((p) => !p.starter),
-        ]
-          .filter((p) => p.id && p.name)
-          .slice(0, Math.floor(MAX_PLAYERS_PER_GAME / 2));
+        interface RosterPlayer { id: string; name: string; position: string; teamAbbr: string; teamName: string; isHome: boolean }
+        const allPlayers: RosterPlayer[] = [];
 
-        const allPlayers = [
-          ...homePlayers.map((p) => ({
-            ...p,
-            teamName: espnGameData.homeTeam.name,
-            teamAbbr: espnGameData.homeTeam.abbreviation,
-            isHome: true,
-          })),
-          ...awayPlayers.map((p) => ({
-            ...p,
-            teamName: espnGameData.awayTeam.name,
-            teamAbbr: espnGameData.awayTeam.abbreviation,
-            isHome: false,
-          })),
-        ];
+        // Fetch rosters using team IDs from ESPN scoreboard
+        if (homeTeamId || awayTeamId) {
+          const fetchRoster = async (teamId: string, teamAbbr: string, teamName: string, isHome: boolean) => {
+            try {
+              const { data } = await axios.get(
+                `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${teamId}/roster`
+              );
+              const athletes = (data.athletes ?? []) as { id: string; displayName: string; position?: { abbreviation?: string } }[];
+              return athletes.slice(0, Math.ceil(MAX_PLAYERS_PER_GAME / 2)).map((a) => ({
+                id: a.id,
+                name: a.displayName,
+                position: a.position?.abbreviation ?? "",
+                teamAbbr,
+                teamName,
+                isHome,
+              }));
+            } catch {
+              return [];
+            }
+          };
+
+          if (homeTeamId) {
+            const homePlayers = await fetchRoster(
+              homeTeamId,
+              espnMatch?.homeTeam.abbreviation ?? "",
+              espnMatch?.homeTeam.name ?? game.home_team,
+              true
+            );
+            allPlayers.push(...homePlayers);
+          }
+          if (awayTeamId) {
+            const awayPlayers = await fetchRoster(
+              awayTeamId,
+              espnMatch?.awayTeam.abbreviation ?? "",
+              espnMatch?.awayTeam.name ?? game.away_team,
+              false
+            );
+            allPlayers.push(...awayPlayers);
+          }
+        }
+
+        if (allPlayers.length === 0) {
+          console.warn(`No roster players for: ${game.away_team} @ ${game.home_team}`);
+          return [];
+        }
 
         // Step 5: Fetch game logs for each player (parallel, batched)
         const playerInputs: PredictionInput[] = [];
@@ -408,43 +422,56 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Step 1: Get today's odds + ESPN games in parallel
-    const [odds, espnGames] = await Promise.all([
-      getOdds(sport),
-      getESPNTodayGames(sport),
-    ]);
+    // Step 1: Get ESPN games (always free) + try Odds API (may be rate-limited)
+    const espnGames = await getESPNTodayGames(sport);
+
+    let odds: Awaited<ReturnType<typeof getOdds>> = [];
+    try {
+      odds = await getOdds(sport);
+    } catch (err) {
+      console.warn("Odds API unavailable (likely quota exceeded), using ESPN only:", String(err).slice(0, 100));
+    }
 
     // Filter to specific game if requested
     const targetGames = gameId
       ? odds.filter((g) => g.id === gameId)
       : odds;
 
-    if (targetGames.length === 0) {
-      return NextResponse.json({
-        predictions: [],
-        hailMary: null,
-        megaParlay: null,
-        source: "none",
-      });
-    }
-
-    // Step 2: Try real player props from The Odds API first
+    // Step 2: Try real player props from The Odds API first (only if odds loaded)
     let allInputs: PredictionInput[] = [];
     let source: "api" | "synthetic" = "api";
 
-    try {
-      allInputs = await fetchRealProps(sport, targetGames, espnGames);
-    } catch (err) {
-      console.warn("Real props fetch failed, will fall back to synthetic:", err);
+    if (targetGames.length > 0) {
+      try {
+        allInputs = await fetchRealProps(sport, targetGames, espnGames);
+      } catch (err) {
+        console.warn("Real props fetch failed:", String(err).slice(0, 100));
+      }
     }
 
-    // Step 3: If no real props came back, generate synthetic lines from ESPN
+    // Step 3: If no real props, generate synthetic lines from ESPN game logs
     if (allInputs.length === 0) {
       console.log(
-        `No real props available for ${sport} — generating synthetic O/U lines from ESPN game logs`
+        `No real props for ${sport} — generating synthetic O/U lines from ESPN`
       );
       source = "synthetic";
-      allInputs = await generateSyntheticProps(sport, targetGames, espnGames);
+
+      // If we have odds games, use those for matching; otherwise ESPN games are all we have
+      if (targetGames.length > 0) {
+        allInputs = await generateSyntheticProps(sport, targetGames, espnGames);
+      } else if (espnGames.length > 0) {
+        // Create minimal "fake" game objects from ESPN data so synthetic generation can work
+        const fakeGames = espnGames.map((eg) => ({
+          id: eg.espnGameId,
+          sport_key: sport,
+          sport_title: "NBA",
+          commence_time: eg.startTime,
+          home_team: eg.homeTeam.name,
+          away_team: eg.awayTeam.name,
+          bookmakers: [] as Awaited<ReturnType<typeof getOdds>>[0]["bookmakers"],
+        }));
+        allInputs = await generateSyntheticProps(sport, fakeGames, espnGames);
+      }
     }
 
     if (allInputs.length === 0) {
@@ -453,7 +480,7 @@ export async function GET(req: NextRequest) {
         hailMary: null,
         megaParlay: null,
         source: "none",
-        message: "No player data available for today's games.",
+        message: "No player data available. Games may not have started yet.",
       });
     }
 
