@@ -10,11 +10,10 @@ interface Message {
 
 const QUICK_PROMPTS = [
   "Who's the best bet tonight?",
-  "Build me a safe hail mary for tonight",
-  "Compare FanDuel vs DraftKings odds for tonight's games",
-  "What happens when Anthony Edwards is out?",
-  "Should I take Booker over 26.5?",
-  "Help me build a 3-leg parlay",
+  "Build me a safe hail mary",
+  "Compare odds across books",
+  "Analyze [player] over 25.5 points",
+  "What are the injury impacts tonight?",
 ];
 
 export default function ChatPage() {
@@ -110,35 +109,36 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 flex flex-col" style={{ height: "calc(100vh - 140px)" }}>
-      {/* Header */}
-      <div className="mb-4">
-        <h1 className="text-xl font-bold">AI Chat</h1>
-        <p className="text-sm text-text-muted">
-          Ask anything about sports, betting, props, or matchups
-        </p>
-      </div>
-
+    <div
+      className="max-w-3xl mx-auto px-4 py-6 flex flex-col"
+      style={{ height: "calc(100vh - 140px)" }}
+    >
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1">
+      <div className="flex-1 overflow-y-auto mb-4 pr-1">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 rounded-2xl bg-accent-green/10 flex items-center justify-center mb-4">
-              <span className="text-2xl text-accent-green font-bold">BB</span>
+            {/* BB Logo */}
+            <div className="w-16 h-16 rounded-2xl bg-accent-green/10 border border-accent-green/20 flex items-center justify-center mb-5">
+              <span className="text-2xl text-accent-green font-bold tracking-tight">BB</span>
             </div>
-            <h2 className="font-semibold text-lg mb-2">
-              What do you want to know?
-            </h2>
-            <p className="text-sm text-text-muted mb-6 max-w-md">
+            <h2 className="font-bold text-xl mb-2">What do you want to know?</h2>
+            <p className="text-sm text-text-muted mb-8 max-w-md leading-relaxed">
               I can analyze matchups, evaluate props, explain betting concepts,
               or help you build smarter parlays.
             </p>
-            <div className="flex flex-wrap gap-2 justify-center">
+
+            {/* Pill-style quick prompts */}
+            <div className="flex flex-wrap gap-2 justify-center max-w-lg">
               {QUICK_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => sendMessage(prompt)}
-                  className="px-3 py-2 bg-bg-card border border-border-subtle rounded-lg text-xs text-text-secondary hover:border-accent-green hover:text-accent-green transition-colors"
+                  className={cn(
+                    "px-4 py-2 rounded-full text-xs font-medium transition-all",
+                    "border border-[rgba(255,255,255,0.1)]",
+                    "text-text-secondary",
+                    "hover:border-accent-green/40 hover:text-accent-green hover:bg-accent-green/[0.04]"
+                  )}
                 >
                   {prompt}
                 </button>
@@ -147,43 +147,59 @@ export default function ChatPage() {
           </div>
         )}
 
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={cn(
-              "flex",
-              msg.role === "user" ? "justify-end" : "justify-start"
-            )}
-          >
+        {/* Chat messages */}
+        <div className="space-y-5">
+          {messages.map((msg, i) => (
             <div
+              key={i}
               className={cn(
-                "max-w-[85%] rounded-2xl px-4 py-3",
-                msg.role === "user"
-                  ? "bg-accent-green text-bg-primary rounded-br-md"
-                  : "bg-bg-card border border-border-subtle rounded-bl-md"
+                "flex gap-3",
+                msg.role === "user" ? "justify-end" : "justify-start"
               )}
             >
-              <p
+              {/* AI avatar */}
+              {msg.role === "assistant" && (
+                <div className="w-7 h-7 rounded-full bg-accent-green/15 border border-accent-green/25 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-[10px] font-bold text-accent-green">BB</span>
+                </div>
+              )}
+
+              <div
                 className={cn(
-                  "text-sm whitespace-pre-wrap leading-relaxed",
-                  msg.role === "user" ? "text-bg-primary" : "text-text-primary"
+                  "max-w-[80%] rounded-2xl px-4 py-3",
+                  msg.role === "user"
+                    ? "bg-[rgba(255,255,255,0.04)] rounded-br-md"
+                    : "bg-bg-card border-l-2 border-accent-green/40 rounded-bl-md"
                 )}
               >
-                {msg.content}
-                {streaming &&
-                  i === messages.length - 1 &&
-                  msg.role === "assistant" && (
-                    <span className="inline-block w-1.5 h-4 bg-accent-green ml-0.5 animate-pulse" />
+                <p
+                  className={cn(
+                    "text-sm whitespace-pre-wrap leading-relaxed",
+                    msg.role === "user" ? "text-text-primary" : "text-text-primary"
                   )}
-              </p>
+                >
+                  {msg.content}
+                  {streaming &&
+                    i === messages.length - 1 &&
+                    msg.role === "assistant" && (
+                      <span className="inline-block w-1.5 h-4 bg-accent-green ml-0.5 animate-pulse rounded-sm" />
+                    )}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="bg-bg-card border border-border-subtle rounded-2xl p-3 flex items-end gap-3">
+      {/* Input area */}
+      <div
+        className="rounded-2xl p-3 flex items-end gap-3"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.02)",
+          border: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
         <textarea
           ref={inputRef}
           value={input}
@@ -198,10 +214,10 @@ export default function ChatPage() {
           onClick={() => sendMessage()}
           disabled={!input.trim() || streaming}
           className={cn(
-            "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors",
+            "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all",
             input.trim() && !streaming
-              ? "bg-accent-green text-bg-primary"
-              : "bg-bg-hover text-text-muted"
+              ? "bg-accent-green text-bg-primary shadow-[0_0_12px_rgba(0,230,118,0.2)]"
+              : "bg-[rgba(255,255,255,0.04)] text-text-muted"
           )}
         >
           <svg

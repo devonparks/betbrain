@@ -26,6 +26,14 @@ const BOOKS = [
   { key: "pointsbetus", label: "PointsBet" },
 ];
 
+const NAV_LINKS = [
+  { href: "/", label: "Today", exact: true },
+  { href: "/predictions", label: "Predictions", exact: false },
+  { href: "/builder", label: "Builder", exact: false },
+  { href: "/chat", label: "Chat", exact: false },
+  { href: "/profile", label: "Profile", exact: false },
+];
+
 export function Navbar() {
   const pathname = usePathname();
   const { selectedSport, selectedBook, setSport, setBook } = useUserStore();
@@ -44,96 +52,25 @@ export function Navbar() {
         </Link>
 
         <div className="hidden md:flex items-center gap-6 text-sm">
-          <Link
-            href="/"
-            className={cn(
-              "transition-colors",
-              pathname === "/" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Today
-          </Link>
-          <Link
-            href="/predictions"
-            className={cn(
-              "transition-colors",
-              pathname === "/predictions" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Predictions
-          </Link>
-          <Link
-            href="/builder"
-            className={cn(
-              "transition-colors",
-              pathname === "/builder" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Builder
-          </Link>
-          <Link
-            href="/daily-pick"
-            className={cn(
-              "transition-colors",
-              pathname === "/daily-pick" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Daily Pick
-          </Link>
-          <Link
-            href="/recap"
-            className={cn(
-              "transition-colors",
-              pathname === "/recap" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Recap
-          </Link>
-          <Link
-            href="/groups"
-            className={cn(
-              "transition-colors",
-              pathname.startsWith("/groups") ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Groups
-          </Link>
-          <Link
-            href="/vault"
-            className={cn(
-              "transition-colors",
-              pathname === "/vault" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Vault
-          </Link>
-          <Link
-            href="/grader"
-            className={cn(
-              "transition-colors",
-              pathname === "/grader" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Grader
-          </Link>
-          <Link
-            href="/chat"
-            className={cn(
-              "transition-colors",
-              pathname === "/chat" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            AI Chat
-          </Link>
-          <Link
-            href="/alerts"
-            className={cn(
-              "transition-colors",
-              pathname === "/alerts" ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
-            )}
-          >
-            Alerts
-          </Link>
+          {NAV_LINKS.map((link) => {
+            const isActive = link.exact
+              ? pathname === link.href
+              : pathname.startsWith(link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={cn(
+                  "transition-colors",
+                  isActive
+                    ? "text-accent-green"
+                    : "text-text-secondary hover:text-text-primary"
+                )}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-3">
@@ -148,6 +85,22 @@ export function Navbar() {
               </option>
             ))}
           </select>
+
+          {/* Notification bell */}
+          <button className="relative w-8 h-8 rounded-full bg-bg-card border border-border-subtle flex items-center justify-center text-text-secondary hover:border-accent-green transition-colors">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+              />
+            </svg>
+            {/* Notification dot - shown when there are unread notifications */}
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent-red" />
+          </button>
+
+          {/* Profile icon */}
           <Link
             href="/profile"
             className="w-8 h-8 rounded-full bg-bg-card border border-border-subtle flex items-center justify-center text-text-secondary hover:border-accent-green transition-colors"

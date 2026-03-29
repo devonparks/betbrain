@@ -2,37 +2,53 @@
 
 import Link from "next/link";
 import { GameCardData } from "@/lib/types";
-import { formatOdds, formatGameTime, isGameLive } from "@/lib/utils";
-import { ConfidenceMeter } from "../analysis/ConfidenceMeter";
+import { formatOdds, formatGameTime, isGameLive, cn } from "@/lib/utils";
 
 interface GameCardProps {
   game: GameCardData;
+  injuries?: number; // number of players out
 }
 
 function hasOdds(odds: number): boolean {
   return isFinite(odds) && odds !== 0;
 }
 
-export function GameCard({ game }: GameCardProps) {
+function confidenceColor(confidence: number): string {
+  if (confidence > 65) return "bg-accent-green";
+  if (confidence >= 40) return "bg-accent-amber";
+  return "bg-accent-red";
+}
+
+export function GameCard({ game, injuries }: GameCardProps) {
   const live = isGameLive(game.commenceTime);
 
   return (
     <Link href={`/game/${game.id}?sport=${game.sportKey}`}>
       <div className="bg-bg-card border border-border-subtle rounded-card p-4 hover:border-border-hover transition-all group cursor-pointer">
-        {/* Live badge or game time */}
+        {/* Top row: time/live badge + injuries + confidence dot */}
         <div className="flex items-center justify-between mb-3">
-          {live ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-accent-green">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
-              LIVE
-            </span>
-          ) : (
-            <span className="text-xs text-text-muted">
-              {formatGameTime(game.commenceTime)}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {live ? (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-accent-green">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
+                LIVE
+              </span>
+            ) : (
+              <span className="text-xs text-text-muted">
+                {formatGameTime(game.commenceTime)}
+              </span>
+            )}
+            {injuries && injuries > 0 && (
+              <span className="text-[10px] font-bold text-accent-red bg-accent-red/10 px-1.5 py-0.5 rounded">
+                {injuries} OUT
+              </span>
+            )}
+          </div>
           {game.aiConfidence > 0 && (
-            <ConfidenceMeter confidence={game.aiConfidence} size="sm" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-text-muted font-mono">{game.aiConfidence}%</span>
+              <span className={cn("w-2 h-2 rounded-full", confidenceColor(game.aiConfidence))} />
+            </div>
           )}
         </div>
 
@@ -80,8 +96,8 @@ export function GameCard({ game }: GameCardProps) {
           </div>
         </div>
 
-        {/* Odds grid */}
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        {/* Odds grid: 2-column (spread + total) */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
           {/* Spread */}
           <div className="bg-bg-hover rounded-lg p-2 text-center">
             <div className="text-[10px] text-text-muted mb-0.5">SPREAD</div>
@@ -96,7 +112,7 @@ export function GameCard({ game }: GameCardProps) {
                 </div>
               </>
             ) : (
-              <div className="font-mono text-xs text-text-muted">—</div>
+              <div className="font-mono text-xs text-text-muted">&mdash;</div>
             )}
           </div>
           {/* Total */}
@@ -112,37 +128,21 @@ export function GameCard({ game }: GameCardProps) {
                 </div>
               </>
             ) : (
-              <div className="font-mono text-xs text-text-muted">—</div>
-            )}
-          </div>
-          {/* Moneyline */}
-          <div className="bg-bg-hover rounded-lg p-2 text-center">
-            <div className="text-[10px] text-text-muted mb-0.5">ML</div>
-            {hasOdds(game.bestOdds.moneyline.home.odds) ? (
-              <>
-                <div className="font-mono text-xs font-medium">
-                  {formatOdds(game.bestOdds.moneyline.home.odds)}
-                </div>
-                <div className="text-[10px] text-accent-green">
-                  {game.bestOdds.moneyline.home.book}
-                </div>
-              </>
-            ) : (
-              <div className="font-mono text-xs text-text-muted">—</div>
+              <div className="font-mono text-xs text-text-muted">&mdash;</div>
             )}
           </div>
         </div>
 
         {/* AI quick take */}
         {game.aiQuickTake && (
-          <p className="text-xs text-text-secondary leading-relaxed border-t border-border-subtle pt-2">
+          <p className="text-xs text-accent-green leading-relaxed border-t border-border-subtle pt-2 mb-1">
             {game.aiQuickTake}
           </p>
         )}
 
         {/* View analysis link */}
         <div className="mt-2 text-xs text-accent-blue group-hover:text-accent-green transition-colors">
-          View full analysis →
+          View analysis &rarr;
         </div>
       </div>
     </Link>
