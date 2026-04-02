@@ -52,3 +52,26 @@ body {
 .confidence-gradient {
   background: linear-gradient(90deg, #FF5252 0%, #FFD600 50%, #00E676 100%);
 }
+
+/* Hide scrollbar but keep functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Mobile: full-width game cards */
+@media (max-width: 640px) {
+  .game-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Safe area for bottom nav */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+}

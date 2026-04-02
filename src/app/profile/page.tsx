@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { BetRecord } from "@/lib/types";
+import { useBlacklistStore } from "@/stores/blacklistStore";
 
 export default function ProfilePage() {
   const { user, isLoading, signIn, signUp, signInWithGoogle, signOut } = useAuth();
@@ -13,6 +14,17 @@ export default function ProfilePage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState("");
   const [updatingBet, setUpdatingBet] = useState<string | null>(null);
+
+  const { players: blacklistedPlayers, addPlayer, removePlayer } = useBlacklistStore();
+  const [newPlayerName, setNewPlayerName] = useState("");
+
+  const handleAddPlayer = () => {
+    const trimmed = newPlayerName.trim();
+    if (trimmed) {
+      addPlayer(trimmed);
+      setNewPlayerName("");
+    }
+  };
 
   const markBetResult = useCallback(
     async (betId: string, result: "won" | "lost" | "push") => {
@@ -187,6 +199,62 @@ export default function ProfilePage() {
             <span className="capitalize">{user.preferences.defaultBook}</span>
           </div>
         </div>
+      </div>
+
+      {/* Player Blacklist */}
+      <div className="bg-bg-card border border-border-subtle rounded-card p-5 mb-6">
+        <h3 className="font-semibold text-sm mb-3">Player Blacklist</h3>
+        <p className="text-xs text-text-muted mb-4">
+          Blacklisted players are excluded from all AI predictions and recommendations
+        </p>
+
+        {/* Add player input */}
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            placeholder="Player name..."
+            value={newPlayerName}
+            onChange={(e) => setNewPlayerName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAddPlayer();
+            }}
+            className="flex-1 bg-bg-primary border border-border-subtle rounded-lg px-3 py-2 text-sm outline-none focus:border-accent-green"
+          />
+          <button
+            onClick={handleAddPlayer}
+            disabled={!newPlayerName.trim()}
+            className="px-4 py-2 bg-accent-green text-bg-primary rounded-lg text-sm font-semibold hover:bg-accent-green/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Add
+          </button>
+        </div>
+
+        {/* Blacklisted players list */}
+        {blacklistedPlayers.length > 0 ? (
+          <div className="space-y-2">
+            {blacklistedPlayers.map((player) => (
+              <div
+                key={player}
+                className="flex items-center justify-between py-2 px-3 bg-bg-primary rounded-lg"
+              >
+                <span className="text-sm">{player}</span>
+                <button
+                  onClick={() => removePlayer(player)}
+                  className="text-text-muted hover:text-accent-red transition-colors p-1"
+                  aria-label={`Remove ${player}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-text-muted text-center py-3">
+            No players blacklisted
+          </p>
+        )}
       </div>
 
       {/* Bet History */}

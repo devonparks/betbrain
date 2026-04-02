@@ -1,8 +1,23 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { OddsResponse, GameCardData, SportKey } from "@/lib/types";
+import { OddsResponse, GameCardData, BestOdds, SportKey } from "@/lib/types";
 import { extractBestOdds } from "@/lib/utils";
+
+const EMPTY_BEST_ODDS: BestOdds = {
+  moneyline: {
+    home: { odds: 0, book: "" },
+    away: { odds: 0, book: "" },
+  },
+  spread: {
+    home: { odds: 0, point: 0, book: "" },
+    away: { odds: 0, point: 0, book: "" },
+  },
+  total: {
+    over: { odds: 0, point: 0, book: "" },
+    under: { odds: 0, point: 0, book: "" },
+  },
+};
 
 export function useOdds(sport: SportKey) {
   const [games, setGames] = useState<GameCardData[]>([]);
@@ -14,30 +29,67 @@ export function useOdds(sport: SportKey) {
   const fetchOdds = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/odds?sport=${sport}`);
-      if (!res.ok) throw new Error("Failed to fetch odds");
-      const data: OddsResponse[] = await res.json();
-      setRawOdds(data);
 
-      const cards: GameCardData[] = data.map((game) => {
-        const bestOdds = extractBestOdds(game);
+      // Try Odds API first
+      const res = await fetch(`/api/odds?sport=${sport}`);
+      if (res.ok) {
+        const data: OddsResponse[] = await res.json();
+        setRawOdds(data);
+        setGames(
+          data.map((game) => ({
+            id: game.id,
+            sportKey: sport,
+            homeTeam: game.home_team,
+            awayTeam: game.away_team,
+            commenceTime: game.commence_time,
+            bestOdds: extractBestOdds(game),
+            aiConfidence: 0,
+            aiQuickTake: "",
+          }))
+        );
+        setLastUpdated(new Date());
+        setError(null);
+        return;
+      }
+
+      // Odds API failed — fall back to ESPN scoreboard
+      const espnRes = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard`
+      );
+      if (!espnRes.ok) throw new Error("Both Odds API and ESPN unavailable");
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const espnData = await espnRes.json() as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const events = (espnData.events ?? []) as any[];
+
+      const espnCards: GameCardData[] = events.map((event) => {
+        const comp = event.competitions?.[0];
+        const competitors = comp?.competitors ?? [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const home = competitors.find((c: any) => c.homeAway === "home");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const away = competitors.find((c: any) => c.homeAway === "away");
+
         return {
-          id: game.id,
+          id: event.id,
           sportKey: sport,
-          homeTeam: game.home_team,
-          awayTeam: game.away_team,
-          commenceTime: game.commence_time,
-          bestOdds,
+          homeTeam: home?.team?.displayName ?? "Home",
+          awayTeam: away?.team?.displayName ?? "Away",
+          commenceTime: event.date ?? new Date().toISOString(),
+          bestOdds: EMPTY_BEST_ODDS,
           aiConfidence: 0,
           aiQuickTake: "",
+          homeRecord: home?.records?.[0]?.summary,
+          awayRecord: away?.records?.[0]?.summary,
         };
       });
 
-      setGames(cards);
+      setGames(espnCards);
       setLastUpdated(new Date());
-      setError(null);
+      setError("Odds unavailable — showing games from ESPN");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Failed to load games");
     } finally {
       setLoading(false);
     }
