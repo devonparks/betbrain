@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { OddsResponse, GameCardData, BestOdds, SportKey } from "@/lib/types";
-import { extractBestOdds } from "@/lib/utils";
+import { extractBestOdds, formatOdds } from "@/lib/utils";
 
 const EMPTY_BEST_ODDS: BestOdds = {
   moneyline: {
@@ -35,18 +35,52 @@ export function useOdds(sport: SportKey) {
       if (res.ok) {
         const data: OddsResponse[] = await res.json();
         setRawOdds(data);
-        setGames(
-          data.map((game) => ({
+
+        const cards: GameCardData[] = data.map((game) => {
+          const bestOdds = extractBestOdds(game);
+          const spreadPt = bestOdds.spread.home.point;
+          const totalPt = bestOdds.total.over.point;
+
+          // Generate a quick take from the odds data
+          const favTeam = spreadPt < 0 ? game.home_team : game.away_team;
+          const favShort = favTeam.split(" ").pop();
+          const absSp = Math.abs(spreadPt);
+          let quickTake = "";
+
+          if (absSp >= 12) {
+            quickTake = `${favShort} ${formatOdds(spreadPt)} — blowout risk, star props may be capped in 4th`;
+          } else if (absSp >= 7) {
+            quickTake = `${favShort} should control this one (${formatOdds(spreadPt)}) — look for role player overs`;
+          } else if (absSp >= 4) {
+            quickTake = `Competitive spread (${formatOdds(spreadPt)}) — both sides have value`;
+          } else if (absSp > 0) {
+            quickTake = `Coin flip (${formatOdds(spreadPt)}) — props more reliable than the side`;
+          } else if (totalPt >= 238) {
+            quickTake = `Pace-up game (O/U ${totalPt}) — scoring props likely to hit overs`;
+          } else if (totalPt <= 212 && totalPt > 0) {
+            quickTake = `Grind-it-out (O/U ${totalPt}) — consider unders on scoring props`;
+          }
+
+          // Confidence based on spread clarity
+          let confidence = 0;
+          if (absSp >= 10) confidence = 75;
+          else if (absSp >= 7) confidence = 62;
+          else if (absSp >= 4) confidence = 50;
+          else if (absSp > 0) confidence = 40;
+
+          return {
             id: game.id,
             sportKey: sport,
             homeTeam: game.home_team,
             awayTeam: game.away_team,
             commenceTime: game.commence_time,
-            bestOdds: extractBestOdds(game),
-            aiConfidence: 0,
-            aiQuickTake: "",
-          }))
-        );
+            bestOdds,
+            aiConfidence: confidence,
+            aiQuickTake: quickTake,
+          };
+        });
+
+        setGames(cards);
         setLastUpdated(new Date());
         setError(null);
         return;
