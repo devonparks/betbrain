@@ -131,7 +131,7 @@ function PredictionRow({
         {/* Player + team + stat line */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-white truncate">
+            <span className="text-sm font-semibold text-white">
               {pred.player}
             </span>
             <span className="text-[10px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
