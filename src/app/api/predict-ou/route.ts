@@ -147,18 +147,20 @@ async function fetchRealProps(
           );
 
           const playerLogMap: Record<string, ESPNPlayerGameLog[]> = {};
+          const playerTeamMap: Record<string, string> = {};
           for (let j = 0; j < uniquePlayers.length; j += 5) {
             const playerBatch = uniquePlayers.slice(j, j + 5);
             const logResults = await Promise.all(
               playerBatch.map(async (playerName) => {
                 const espnPlayer = await searchESPNPlayer(playerName);
-                if (!espnPlayer) return { name: playerName, logs: [] as ESPNPlayerGameLog[] };
+                if (!espnPlayer) return { name: playerName, logs: [] as ESPNPlayerGameLog[], teamAbbr: "" };
                 const logs = await getESPNPlayerGameLog(espnPlayer.id);
-                return { name: playerName, logs };
+                return { name: playerName, logs, teamAbbr: espnPlayer.team ?? "" };
               })
             );
             for (const result of logResults) {
               playerLogMap[result.name] = result.logs;
+              playerTeamMap[result.name] = result.teamAbbr;
             }
           }
 
@@ -181,13 +183,21 @@ async function fetchRealProps(
 
             if (!statType) continue;
 
-            const isHome =
-              matchTeamName(game.home_team, prop.player) ||
-              !!espnMatch?.homeTeam.name;
+            // Determine team abbreviation from ESPN player search or ESPN match data
+            const playerTeamAbbr = playerTeamMap[prop.player] || "";
+            const isHome = playerTeamAbbr
+              ? (espnMatch?.homeTeam.abbreviation ?? "").toUpperCase() === playerTeamAbbr.toUpperCase()
+              : !!espnMatch?.homeTeam.name;
+
+            // Fall back to ESPN match abbreviation if player search didn't return team
+            const team = playerTeamAbbr
+              || (isHome
+                ? (espnMatch?.homeTeam.abbreviation ?? "")
+                : (espnMatch?.awayTeam.abbreviation ?? ""));
 
             inputs.push({
               player: prop.player,
-              team: "",
+              team,
               stat: statType as PredictionInput["stat"],
               line: prop.line,
               overOdds: prop.overOdds,

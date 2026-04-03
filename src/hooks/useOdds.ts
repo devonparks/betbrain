@@ -106,7 +106,7 @@ export function useOdds(sport: SportKey) {
         const away = competitors.find((c: any) => c.homeAway === "away");
 
         return {
-          id: event.id,
+          id: `espn-${event.id}`,
           sportKey: sport,
           homeTeam: home?.team?.displayName ?? "Home",
           awayTeam: away?.team?.displayName ?? "Away",

@@ -19,6 +19,7 @@ import { SendToFanDuel } from "@/components/betting/SendToFanDuel";
 import { detectValueBets, ValueBet } from "@/lib/value-detector";
 import { useUserStore } from "@/stores/userStore";
 import { OUPrediction } from "@/lib/prediction-engine";
+import { analyzeInjuryRipple, InjuryRippleEffect } from "@/lib/injury-ripple";
 import { cn } from "@/lib/utils";
 
 export default function GameDeepDive() {
@@ -54,6 +55,9 @@ export default function GameDeepDive() {
 
   // O/U Predictions
   const [ouPredictions, setOuPredictions] = useState<OUPrediction[]>([]);
+
+  // Injury ripple effects
+  const [injuryRipples, setInjuryRipples] = useState<InjuryRippleEffect[]>([]);
 
   // Odds table collapsed state
   const [oddsExpanded, setOddsExpanded] = useState(false);
@@ -178,6 +182,52 @@ export default function GameDeepDive() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, loadingResearch]);
 
+  // Compute injury ripple effects when ESPN data + player logs are available
+  useEffect(() => {
+    if (!espnData || Object.keys(playerLogs).length === 0) return;
+
+    const allTeams = [espnData.homeTeam, espnData.awayTeam];
+    const ripples: InjuryRippleEffect[] = [];
+
+    for (const teamData of allTeams) {
+      // Find players marked as "Out" in injuries list
+      const outPlayers = teamData.injuries.filter(
+        (inj) => inj.status === "Out"
+      );
+
+      for (const injury of outPlayers) {
+        const injuredName = injury.player;
+        const injuredLogs = playerLogs[injuredName];
+        if (!injuredLogs || injuredLogs.length < 3) continue;
+
+        // Gather teammate logs (players on same team who have logs)
+        const teammates: { name: string; team: string; logs: ESPNPlayerGameLog[] }[] = [];
+        for (const player of teamData.players) {
+          if (player.name === injuredName) continue;
+          const logs = playerLogs[player.name];
+          if (logs && logs.length >= 3) {
+            teammates.push({ name: player.name, team: teamData.name, logs });
+          }
+        }
+
+        if (teammates.length === 0) continue;
+
+        const ripple = analyzeInjuryRipple(
+          injuredName,
+          injury.status,
+          teammates,
+          injuredLogs
+        );
+
+        if (ripple.teammates.length > 0) {
+          ripples.push(ripple);
+        }
+      }
+    }
+
+    setInjuryRipples(ripples);
+  }, [espnData, playerLogs]);
+
   const handlePlayerClick = (player: ESPNPlayer) => {
     const logs = playerLogs[player.name];
     if (logs && logs.length > 0) setSelectedPlayer({ name: player.name, logs });
@@ -239,6 +289,12 @@ export default function GameDeepDive() {
   const totalInjuries = espnData
     ? espnData.homeTeam.injuries.length + espnData.awayTeam.injuries.length
     : 0;
+
+  // Blowout detection — spread >= 12 points
+  const homeSpread = bestOdds.spread.home.point;
+  const absSpread = Math.abs(homeSpread);
+  const isBlowoutRisk = hasFiniteOdds(bestOdds.spread.home.odds) && absSpread >= 12;
+  const blowoutFavorite = homeSpread < 0 ? game.home_team : game.away_team;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
@@ -308,6 +364,19 @@ export default function GameDeepDive() {
           <SendToFanDuel compact />
         </div>
       </div>
+
+      {/* ===== BLOWOUT WARNING ===== */}
+      {isBlowoutRisk && (
+        <div className="bg-accent-amber/10 border-2 border-accent-amber/40 rounded-card p-4 flex items-start gap-3">
+          <span className="text-accent-amber text-xl leading-none mt-0.5">&#9888;</span>
+          <div>
+            <h4 className="font-bold text-sm text-accent-amber">BLOWOUT RISK</h4>
+            <p className="text-sm text-text-secondary mt-0.5">
+              {blowoutFavorite} favored by {absSpread}. Star players may sit in the 4th quarter, capping their stat lines.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ===== SECTION 2: AI ANALYSIS (most prominent) ===== */}
       <div className="bg-bg-card border-2 border-accent-green/30 rounded-card p-5">
@@ -433,36 +502,76 @@ export default function GameDeepDive() {
           )}
 
           {ouPredictions.length > 0 && (
-            <div className="bg-bg-card border border-border-subtle rounded-card p-4">
-              <h3 className="font-semibold text-sm mb-3">O/U Predictions</h3>
-              <div className="space-y-1.5">
-                {ouPredictions.slice(0, 10).map((pred, i) => {
-                  const odds = pred.prediction === "OVER" ? pred.overOdds : pred.underOdds;
+            <div className="bg-bg-card border-2 border-accent-green/20 rounded-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="w-2 h-2 rounded-full bg-accent-green" />
+                <h3 className="font-bold text-sm">Player Prop Predictions</h3>
+                <span className="text-[10px] text-text-muted ml-auto">{ouPredictions.length} predictions</span>
+              </div>
+              <div className="space-y-2">
+                {ouPredictions.slice(0, 15).map((pred, i) => {
+                  const isOver = pred.prediction === "OVER";
+                  const last5 = pred.last10?.slice(0, 5) ?? [];
                   return (
-                    <div key={i} className="flex items-center justify-between py-1.5 px-2.5 rounded bg-bg-hover">
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                          pred.prediction === "OVER" ? "bg-accent-green/20 text-accent-green" : "bg-accent-red/20 text-accent-red"
-                        )}>
-                          {pred.prediction}
-                        </span>
-                        <span className="text-sm font-medium">{pred.player}</span>
-                        <span className="text-xs text-text-muted capitalize">{pred.stat} {pred.line}</span>
+                    <div key={i} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-bg-hover border border-border-subtle">
+                      {/* OVER/UNDER badge */}
+                      <span className={cn(
+                        "text-[10px] font-bold px-2 py-1 rounded shrink-0 w-14 text-center",
+                        isOver ? "bg-accent-green/20 text-accent-green" : "bg-accent-red/20 text-accent-red"
+                      )}>
+                        {pred.prediction}
+                      </span>
+
+                      {/* Player + stat + line */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate">{pred.player}</div>
+                        <div className="text-xs text-text-muted capitalize">
+                          {pred.stat} {pred.line}
+                          {pred.book && <span className="ml-1.5 text-text-muted/60">({pred.book})</span>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-xs text-text-secondary">{formatOdds(odds)}</span>
-                        <span className={cn(
-                          "font-mono text-xs font-bold",
+
+                      {/* Confidence */}
+                      <div className="shrink-0 text-right">
+                        <div className={cn(
+                          "font-mono text-sm font-bold",
                           pred.confidence >= 70 ? "text-accent-green" : pred.confidence >= 50 ? "text-accent-amber" : "text-text-secondary"
                         )}>
                           {pred.confidence}%
-                        </span>
+                        </div>
+                        <div className="text-[10px] text-text-muted">confidence</div>
                       </div>
+
+                      {/* Last 5 games sparkline */}
+                      {last5.length > 0 && (
+                        <div className="hidden sm:flex items-end gap-0.5 shrink-0 h-6">
+                          {last5.map((val, j) => {
+                            const hitLine = isOver ? val > pred.line : val < pred.line;
+                            const maxVal = Math.max(...last5, pred.line);
+                            const height = maxVal > 0 ? Math.max(4, (val / maxVal) * 24) : 4;
+                            return (
+                              <div
+                                key={j}
+                                className={cn(
+                                  "w-1.5 rounded-sm",
+                                  hitLine ? "bg-accent-green" : "bg-accent-red/50"
+                                )}
+                                style={{ height: `${height}px` }}
+                                title={`${val}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
+              {ouPredictions.length > 15 && (
+                <p className="text-[10px] text-text-muted text-center mt-3">
+                  Showing top 15 of {ouPredictions.length} predictions
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -498,6 +607,58 @@ export default function GameDeepDive() {
 
       {analysis && analysis.injuryImpact.length > 0 && (
         <InjuryImpact injuries={analysis.injuryImpact} />
+      )}
+
+      {/* ===== INJURY RIPPLE EFFECTS ===== */}
+      {injuryRipples.length > 0 && (
+        <div className="bg-bg-card border border-accent-amber/30 rounded-card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-4 h-4 text-accent-amber" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <h3 className="font-bold text-sm text-accent-amber">Injury Impact</h3>
+            <span className="text-[10px] text-text-muted ml-auto">Stat shifts when key players are out</span>
+          </div>
+          <div className="space-y-4">
+            {injuryRipples.map((ripple, ri) => (
+              <div key={ri}>
+                <div className="text-xs text-text-muted mb-2">
+                  <span className="font-semibold text-accent-red">{ripple.injuredPlayer}</span>
+                  <span className="ml-1.5 text-[10px] bg-accent-red/20 text-accent-red px-1.5 py-0.5 rounded">
+                    {ripple.injuredPlayerStatus}
+                  </span>
+                </div>
+                {ripple.summary && (
+                  <p className="text-sm text-text-secondary mb-2">{ripple.summary}</p>
+                )}
+                <div className="space-y-1">
+                  {ripple.teammates.slice(0, 5).map((tm, ti) => {
+                    const statLabel = tm.stat === "points" ? "PPG" : tm.stat === "rebounds" ? "RPG" : "APG";
+                    return (
+                      <div key={ti} className="flex items-center justify-between py-1.5 px-2.5 rounded bg-bg-hover">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{tm.name}</span>
+                          <span className="text-xs text-text-muted capitalize">{tm.stat}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-xs text-text-muted">{tm.withPlayer} {statLabel}</span>
+                          <svg className="w-3 h-3 text-accent-green" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                          </svg>
+                          <span className="font-mono text-sm font-bold text-accent-green">{tm.withoutPlayer} {statLabel}</span>
+                          <span className="text-[10px] text-accent-green bg-accent-green/10 px-1.5 py-0.5 rounded font-bold">
+                            +{tm.boost}
+                          </span>
+                          <span className="text-[10px] text-text-muted">({tm.gamesWithout}g)</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {espnData && (
