@@ -44,15 +44,16 @@ export const useBetSlipStore = create<BetSlipState>()(
         const { legs } = get();
         if (legs.length === 0) return "+0";
         if (legs.length === 1) return legs[0].bestOdds;
-        const odds = legs.map((l) => parseInt(l.bestOdds));
+        const odds = legs.map((l) => parseInt(l.bestOdds) || -110);
         return formatOdds(calculateParlayOdds(odds));
       },
 
       getPayout: () => {
         const { legs, stake } = get();
         if (legs.length === 0) return 0;
-        if (legs.length === 1) return calculatePayout(stake, parseInt(legs[0].bestOdds));
-        const odds = legs.map((l) => parseInt(l.bestOdds));
+        const parsedOdds = parseInt(legs[0]?.bestOdds) || -110;
+        if (legs.length === 1) return calculatePayout(stake, parsedOdds);
+        const odds = legs.map((l) => parseInt(l.bestOdds) || -110);
         return calculatePayout(stake, calculateParlayOdds(odds));
       },
     }),

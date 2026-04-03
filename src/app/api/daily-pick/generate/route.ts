@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { rateLimit, getIP, rateLimitResponse } from "@/lib/rate-limit";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 export async function POST(req: NextRequest) {
+  const ip = getIP(req);
+  const rl = rateLimit("daily-pick-gen", ip, 3, 3600000);
+  if (rl.limited) return rateLimitResponse(rl.resetIn);
+
   // 1. Fetch predictions from our engine
   const baseUrl = new URL(req.url).origin;
   const predRes = await fetch(`${baseUrl}/api/predict-ou?sport=nba`);

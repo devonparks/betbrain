@@ -6,9 +6,15 @@ export async function POST(req: NextRequest) {
   try {
     const { groupId, userId, displayName } = await req.json();
 
-    if (!groupId || !userId) {
+    if (!groupId || typeof groupId !== "string" || groupId.length > 128) {
       return NextResponse.json(
-        { error: "groupId and userId are required" },
+        { error: "groupId must be a non-empty string (max 128 chars)" },
+        { status: 400 }
+      );
+    }
+    if (!userId || typeof userId !== "string" || userId.length > 128) {
+      return NextResponse.json(
+        { error: "userId must be a non-empty string (max 128 chars)" },
         { status: 400 }
       );
     }

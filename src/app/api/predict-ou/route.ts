@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
+import { rateLimit, getIP, rateLimitResponse } from "@/lib/rate-limit";
 import { getOdds, getPlayerProps } from "@/lib/odds-api";
 import {
   getESPNTodayGames,
@@ -28,6 +29,7 @@ let cache: {
   };
   timestamp: number;
   sport: string;
+  date: string;
 } | null = null;
 const CACHE_TTL = 15 * 60 * 1000;
 
@@ -42,9 +44,10 @@ const SYNTHETIC_STATS: { stat: PredictionInput["stat"]; logKey: keyof ESPNPlayer
 
 // ============ HELPERS ============
 
-/** Round a number to the nearest 0.5 */
+/** Round DOWN to nearest 0.5 — creates slightly more overs, matching how
+ *  sportsbooks typically set lines slightly below the true average */
 function roundToHalf(n: number): number {
-  return Math.round(n * 2) / 2;
+  return Math.floor(n * 2) / 2;
 }
 
 /** Calculate average of a stat over game logs */
@@ -407,16 +410,22 @@ async function generateSyntheticProps(
 // ============ MAIN ROUTE ============
 
 export async function GET(req: NextRequest) {
+  const ip = getIP(req);
+  const rl = rateLimit("predict-ou", ip, 10, 60000);
+  if (rl.limited) return rateLimitResponse(rl.resetIn);
+
   const sport = (req.nextUrl.searchParams.get("sport") ?? "nba") as SportKey;
   const gameId = req.nextUrl.searchParams.get("gameId");
   const blacklistParam = req.nextUrl.searchParams.get("blacklist");
   const blacklist = blacklistParam ? blacklistParam.split(",") : [];
 
   try {
-    // Check cache
+    // Check cache (include date so stale day-old data is never served)
+    const today = new Date().toISOString().split("T")[0];
     if (
       cache &&
       cache.sport === sport &&
+      cache.date === today &&
       Date.now() - cache.timestamp < CACHE_TTL &&
       !gameId
     ) {
@@ -507,6 +516,7 @@ export async function GET(req: NextRequest) {
         data: { predictions, hailMary, megaParlay, source },
         timestamp: Date.now(),
         sport,
+        date: today,
       };
     }
 

@@ -508,13 +508,19 @@ export async function getESPNPlayerGameLog(
         const catEvents: any[] = cat.events ?? [];
         for (const ev of catEvents) {
           const stats: string[] = ev.stats ?? [];
+          // Bounds check: ESPN NBA box score has 14 stat columns minimum.
+          // If the row is shorter, it's malformed or a different sport layout — skip it.
           if (stats.length < 14) continue;
 
           const eventId = ev.eventId ?? "";
           const meta = eventsMap[eventId] ?? {};
           const opponent = meta?.opponent ?? meta?.atVs;
 
-          // ESPN stat layout: [MIN, FG, FG%, 3PT, 3P%, FT, FT%, REB, AST, BLK, STL, PF, TO, PTS]
+          // ESPN stat index layout (NBA):
+          //  [0] MIN   [1] FG (made-att)  [2] FG%   [3] 3PT (made-att)  [4] 3P%
+          //  [5] FT (made-att)  [6] FT%   [7] REB   [8] AST   [9] BLK
+          // [10] STL  [11] PF  [12] TO   [13] PTS
+          // parseFloat(x) || 0 already guards against NaN since NaN is falsy.
           const [fgm, fga] = parseMadeAttempted(stats[1] ?? "0-0");
           const [fg3m, fg3a] = parseMadeAttempted(stats[3] ?? "0-0");
           const [ftm, fta] = parseMadeAttempted(stats[5] ?? "0-0");

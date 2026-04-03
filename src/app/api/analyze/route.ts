@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeGame } from "@/lib/claude";
 import { getOdds } from "@/lib/odds-api";
+import { rateLimit, getIP, rateLimitResponse } from "@/lib/rate-limit";
 
 import { OddsResponse } from "@/lib/types";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export async function POST(req: NextRequest) {
+  const ip = getIP(req);
+  const rl = rateLimit("analyze", ip, 10, 60000);
+  if (rl.limited) return rateLimitResponse(rl.resetIn);
+
   try {
     const body = await req.json();
     const { gameId, sport, forceRefresh } = body;

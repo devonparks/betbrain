@@ -151,11 +151,11 @@ export function predictOU(input: PredictionInput): OUPrediction {
     }
   }
 
-  // Factor 6: Blowout risk (weight: 5) — only affects star players
+  // Factor 6: Blowout risk (weight: 12) — only affects star players
   if (blowoutRisk && stat === "points" && fullAvg > 20) {
-    const blowoutWeight = 5;
+    const blowoutWeight = 12;
     totalWeight += blowoutWeight;
-    rawScore -= blowoutWeight * 0.6; // Lean under for star props in blowouts
+    rawScore -= blowoutWeight * 0.7; // Lean under for star props in blowouts
     reasons.push(`Blowout risk: ${Math.abs(spread!).toFixed(0)} pt spread — star may sit in 4th`);
   }
 
@@ -175,21 +175,23 @@ export function predictOU(input: PredictionInput): OUPrediction {
   const prediction: "OVER" | "UNDER" = rawScore >= 0 ? "OVER" : "UNDER";
 
   // Normalize raw score to confidence (0-100)
-  // |rawScore| / totalWeight gives us 0-1, then scale to 35-95 range
+  // |rawScore| / totalWeight gives us 0-1, then scale to 40-92 range
   const normalizedScore = Math.abs(rawScore) / totalWeight;
-  let confidence = Math.round(35 + normalizedScore * 60);
-  confidence = Math.max(35, Math.min(95, confidence));
+  let confidence = Math.round(40 + normalizedScore * 55);
+  confidence = Math.max(40, Math.min(92, confidence));
 
   // Boost confidence if odds agree with our prediction
   const ourImplied = prediction === "OVER" ? impliedOver : impliedUnder;
   if (ourImplied > 0.55) {
-    confidence = Math.min(95, confidence + 3);
+    confidence = Math.min(92, confidence + 3);
   }
 
   // Reduce confidence if we have few games
   if (last10.length < 5) {
-    confidence = Math.min(55, confidence);
+    confidence = Math.min(50, confidence);
     reasons.push(`Limited data: only ${last10.length} games available`);
+  } else if (last10.length < 8) {
+    confidence = Math.min(65, confidence);
   }
 
   // Build reasoning string
@@ -371,17 +373,17 @@ function calculateHomeAwaySplit(
   gameLogs: ESPNPlayerGameLog[],
   statKey: keyof ESPNPlayerGameLog
 ): { home: number; away: number } {
-  // ESPN game logs have result like "W 123-110" but don't directly indicate home/away
-  // We approximate using the result string — if it starts with opponent abbrev it was away
-  // For now, use odd/even index as a rough split (we'll improve with real data)
+  // ESPN game logs have an `opponent` field but no direct home/away indicator.
+  // Without a richer data source (e.g. schedule endpoint with venue info), we
+  // cannot reliably determine which games were home vs away. Using the overall
+  // average for both is more honest than applying a fake percentage split.
+  // TODO: integrate ESPN schedule or venue data for real home/away splits.
   const all = gameLogs.slice(0, 20).map((g) => g[statKey] as number);
   if (all.length === 0) return { home: 0, away: 0 };
 
-  // Simple split: average of all (we'll get real home/away from ESPN later)
   const avg = all.reduce((s, v) => s + v, 0) / all.length;
-  // Home boost is typically 5-8% for NBA points
   return {
-    home: avg * 1.04,
-    away: avg * 0.96,
+    home: avg,
+    away: avg,
   };
 }

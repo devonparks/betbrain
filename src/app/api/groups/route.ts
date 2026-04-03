@@ -51,14 +51,20 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { name, createdBy, displayName } = body;
 
-    if (!name || !createdBy) {
+    if (!name || typeof name !== "string" || name.length > 100) {
       return NextResponse.json(
-        { error: "name and createdBy are required" },
+        { error: "name must be a non-empty string (max 100 chars)" },
+        { status: 400 }
+      );
+    }
+    if (!createdBy || typeof createdBy !== "string" || createdBy.length > 128) {
+      return NextResponse.json(
+        { error: "createdBy must be a non-empty string (max 128 chars)" },
         { status: 400 }
       );
     }
 
-    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const inviteCode = crypto.randomUUID().slice(0, 8).toUpperCase();
     const groupRef = doc(collection(db, "groups"));
     const groupData = {
       name,

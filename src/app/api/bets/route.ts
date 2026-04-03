@@ -6,9 +6,15 @@ import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 export async function POST(req: NextRequest) {
   try {
     const { userId, bet } = await req.json();
-    if (!userId || !bet) {
+    if (!userId || typeof userId !== "string" || userId.length > 128) {
       return NextResponse.json(
-        { error: "userId and bet are required" },
+        { error: "userId must be a non-empty string (max 128 chars)" },
+        { status: 400 }
+      );
+    }
+    if (!bet || typeof bet !== "object" || typeof bet.pick !== "string") {
+      return NextResponse.json(
+        { error: "bet must be an object with at minimum a 'pick' string property" },
         { status: 400 }
       );
     }
@@ -41,9 +47,21 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const { userId, betId, result } = await req.json();
-    if (!userId || !betId || !result) {
+    if (!userId || typeof userId !== "string" || userId.length > 128) {
       return NextResponse.json(
-        { error: "userId, betId, and result are required" },
+        { error: "userId must be a non-empty string (max 128 chars)" },
+        { status: 400 }
+      );
+    }
+    if (!betId || typeof betId !== "string" || betId.length > 64) {
+      return NextResponse.json(
+        { error: "betId must be a non-empty string (max 64 chars)" },
+        { status: 400 }
+      );
+    }
+    if (!["won", "lost", "push"].includes(result)) {
+      return NextResponse.json(
+        { error: "result must be one of: won, lost, push" },
         { status: 400 }
       );
     }

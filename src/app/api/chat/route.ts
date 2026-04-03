@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { rateLimit, getIP, rateLimitResponse } from "@/lib/rate-limit";
 import { getOdds } from "@/lib/odds-api";
 import {
   searchESPNPlayer,
@@ -252,6 +253,10 @@ async function fetchLiveContext(
 }
 
 export async function POST(req: NextRequest) {
+  const ip = getIP(req);
+  const rl = rateLimit("chat", ip, 10, 60000);
+  if (rl.limited) return rateLimitResponse(rl.resetIn);
+
   try {
     const { messages } = await req.json();
 
