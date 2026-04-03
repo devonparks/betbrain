@@ -181,21 +181,63 @@ export async function getTeamInjuries(
   teamId: string
 ): Promise<Injury[]> {
   try {
+    // Try per-team endpoint first
     const { data } = await axios.get(
       espnUrl(sportKey, `teams/${teamId}/injuries`)
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items = data?.items ?? data?.team?.injuries ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return items.map((item: any) => ({
-      player: item.athlete?.displayName ?? item.name ?? "Unknown",
-      position: item.athlete?.position?.abbreviation ?? "",
-      status: item.status ?? item.type?.description ?? "Unknown",
-      description: item.details?.detail ?? item.longComment ?? "",
-      lastUpdate: item.date ?? new Date().toISOString(),
-    }));
+    if (items.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return items.map((item: any) => ({
+        player: item.athlete?.displayName ?? item.name ?? "Unknown",
+        position: item.athlete?.position?.abbreviation ?? "",
+        status: item.status ?? item.type?.description ?? "Unknown",
+        description: item.details?.detail ?? item.longComment ?? "",
+        lastUpdate: item.date ?? new Date().toISOString(),
+      }));
+    }
+    return [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Get injuries from a game summary (more reliable than per-team endpoint)
+ */
+export async function getGameInjuries(
+  sportKey: string,
+  espnGameId: string
+): Promise<{ homeInjuries: Injury[]; awayInjuries: Injury[] }> {
+  try {
+    const summary = await getESPNGameSummary(sportKey, espnGameId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const injuryReports = (summary as any)?.injuries ?? [];
+
+    const result: { homeInjuries: Injury[]; awayInjuries: Injury[] } = {
+      homeInjuries: [],
+      awayInjuries: [],
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    injuryReports.forEach((teamReport: any, idx: number) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const injuries: Injury[] = (teamReport.injuries ?? []).map((inj: any) => ({
+        player: inj.athlete?.displayName ?? "Unknown",
+        position: inj.athlete?.position?.abbreviation ?? "",
+        status: inj.status ?? "Unknown",
+        description: inj.details?.detail ?? inj.details?.fantasyStatus ?? "",
+        lastUpdate: inj.date ?? new Date().toISOString(),
+      }));
+
+      if (idx === 0) result.homeInjuries = injuries;
+      else result.awayInjuries = injuries;
+    });
+
+    return result;
+  } catch {
+    return { homeInjuries: [], awayInjuries: [] };
   }
 }
 
@@ -354,13 +396,35 @@ export async function getESPNGameData(
     const homeTeam = parseTeam(homeComp, homeIdx);
     const awayTeam = parseTeam(awayComp, awayIdx);
 
-    // Get injuries for both teams
-    const [homeInjuries, awayInjuries] = await Promise.all([
-      getTeamInjuries(sportKey, homeTeam.id),
-      getTeamInjuries(sportKey, awayTeam.id),
-    ]);
-    homeTeam.injuries = homeInjuries;
-    awayTeam.injuries = awayInjuries;
+    // Get injuries from game summary (more reliable than per-team endpoint)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const injuryReports = (summary as any)?.injuries ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    injuryReports.forEach((teamReport: any, idx: number) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const injuries: Injury[] = (teamReport.injuries ?? []).map((inj: any) => ({
+        player: inj.athlete?.displayName ?? "Unknown",
+        position: inj.athlete?.position?.abbreviation ?? "",
+        status: inj.status ?? "Unknown",
+        description: inj.details?.detail ?? inj.details?.fantasyStatus ?? "",
+        lastUpdate: inj.date ?? new Date().toISOString(),
+      }));
+      const teamId = teamReport.team?.id;
+      if (teamId === homeTeam.id) homeTeam.injuries = injuries;
+      else if (teamId === awayTeam.id) awayTeam.injuries = injuries;
+      else if (idx === 0) homeTeam.injuries = injuries;
+      else awayTeam.injuries = injuries;
+    });
+
+    // Fallback to per-team endpoint if game summary had no injuries
+    if (homeTeam.injuries.length === 0 && awayTeam.injuries.length === 0) {
+      const [hi, ai] = await Promise.all([
+        getTeamInjuries(sportKey, homeTeam.id),
+        getTeamInjuries(sportKey, awayTeam.id),
+      ]);
+      homeTeam.injuries = hi;
+      awayTeam.injuries = ai;
+    }
 
     // Parse odds from ESPN
     const pickcenter = summary?.pickcenter?.[0];
