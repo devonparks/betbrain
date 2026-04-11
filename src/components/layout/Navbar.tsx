@@ -28,6 +28,7 @@ const BOOKS = [
 
 const NAV_LINKS = [
   { href: "/", label: "Today", exact: true },
+  { href: "/stats", label: "Stats", exact: false },
   { href: "/predictions", label: "Predictions", exact: false },
   { href: "/builder", label: "Builder", exact: false },
   { href: "/chat", label: "Chat", exact: false },
