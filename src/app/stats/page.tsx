@@ -1,62 +1,33 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ESPNPlayerGameLog } from "@/lib/stats-api";
-import { StatsPanel } from "@/components/analysis/StatsPanel";
 import { cn } from "@/lib/utils";
+import { StatsPanel } from "@/components/analysis/StatsPanel";
+import { ESPNPlayerGameLog } from "@/lib/stats-api";
 
 // ===== TYPES =====
 
-interface LeaderEntry {
-  name: string;
-  team: string;
-  position: string;
-  id: string;
-  ppg: number;
-  rpg: number;
-  apg: number;
-  threes: number;
-  spg: number;
-  bpg: number;
-  last5: number[];
+interface StatItem {
+  label: string;
+  value: string;
 }
 
-interface LeaderData {
-  points: LeaderEntry[];
-  rebounds: LeaderEntry[];
-  assists: LeaderEntry[];
-  threes: LeaderEntry[];
-  steals: LeaderEntry[];
-  blocks: LeaderEntry[];
+interface GameLogEntry {
+  date: string;
+  opp: string;
+  pts: number;
+  reb: number;
+  ast: number;
+  result: string;
 }
 
-interface PlayerResult {
-  id: string;
-  name: string;
-  team: string;
-  position: string;
-  ppg: number;
-  rpg: number;
-  apg: number;
-  threes: number;
-  gameLogs: ESPNPlayerGameLog[];
-}
-
-interface StandingsTeam {
-  name: string;
-  abbreviation: string;
-  wins: string;
-  losses: string;
-  winPct: string;
-  gb: string;
-  streak: string;
-  ppg: string;
-  oppPpg: string;
-}
-
-interface Conference {
-  name: string;
-  teams: StandingsTeam[];
+interface AskResponse {
+  type: "player_stats" | "comparison" | "leaders" | "general";
+  headline: string;
+  answer: string;
+  stats: StatItem[];
+  gamelog: GameLogEntry[];
+  player?: { name: string; team: string; position: string; id: string } | null;
 }
 
 // ===== HELPERS =====
@@ -72,98 +43,92 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+// ===== SUGGESTED QUERIES =====
+
+const SUGGESTIONS = [
+  "LeBron James this season",
+  "Giannis last 10 games",
+  "Who leads the NBA in scoring?",
+  "Jokic stats this month",
+  "Trae Young vs Celtics",
+  "Wemby blocks per game",
+  "Steph Curry 3-pointers this season",
+  "Shai Gilgeous-Alexander averages",
+];
+
+// ===== TRENDING PLAYERS =====
+
+const TRENDING = [
+  { name: "Victor Wembanyama", team: "SA", color: "#000000", textColor: "#ffffff", query: "Wembanyama this season" },
+  { name: "Nikola Jokic", team: "DEN", color: "#FFC72C", textColor: "#0C2340", query: "Jokic this season" },
+  { name: "Shai Gilgeous-Alexander", team: "OKC", color: "#007AC1", textColor: "#ffffff", query: "SGA this season" },
+  { name: "Jayson Tatum", team: "BOS", color: "#007A33", textColor: "#ffffff", query: "Tatum this season" },
+  { name: "Anthony Edwards", team: "MIN", color: "#0C2340", textColor: "#78BE20", query: "Anthony Edwards this season" },
+  { name: "Luka Doncic", team: "LAL", color: "#552583", textColor: "#FDB927", query: "Luka this season" },
+];
+
 // ===== COMPONENT =====
 
 export default function StatsPage() {
   const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [playerResult, setPlayerResult] = useState<PlayerResult | null>(null);
-  const [leaders, setLeaders] = useState<LeaderData | null>(null);
-  const [loadingLeaders, setLoadingLeaders] = useState(true);
-  const [standings, setStandings] = useState<Conference[]>([]);
-  const [showStandings, setShowStandings] = useState(false);
-  const [activeTab, setActiveTab] = useState<"leaders" | "standings">("leaders");
-  const searchRef = useRef<HTMLInputElement>(null);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<AskResponse | null>(null);
+  const [fullGameLogs, setFullGameLogs] = useState<ESPNPlayerGameLog[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<{ query: string; result: AskResponse }[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch league leaders on mount
+  // Focus input on mount
   useEffect(() => {
-    async function fetchLeaders() {
-      try {
-        const res = await fetch("/api/stats/player?leaders=true");
-        if (res.ok) {
-          setLeaders(await res.json());
-        }
-      } catch {
-        // Best effort
-      } finally {
-        setLoadingLeaders(false);
-      }
-    }
-    fetchLeaders();
+    inputRef.current?.focus();
   }, []);
 
-  // Search with debounce
-  function handleSearch(value: string) {
-    setQuery(value);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+  async function handleAsk(q?: string) {
+    const searchQuery = q ?? query.trim();
+    if (!searchQuery || loading) return;
 
-    if (value.length < 2) {
-      setPlayerResult(null);
-      return;
-    }
+    setQuery(searchQuery);
+    setLoading(true);
+    setError(null);
+    setFullGameLogs(null);
 
-    searchTimeout.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await fetch(`/api/stats/player?search=${encodeURIComponent(value)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.results?.length > 0) {
-            setPlayerResult(data.results[0]);
-          } else {
-            setPlayerResult(null);
-          }
-        }
-      } catch {
-        // Best effort
-      } finally {
-        setSearching(false);
-      }
-    }, 500);
-  }
-
-  // Fetch standings on demand
-  async function fetchStandings() {
-    if (standings.length > 0) {
-      setShowStandings(!showStandings);
-      return;
-    }
     try {
-      const res = await fetch("/api/stats/player?standings=true");
-      if (res.ok) {
-        const data = await res.json();
-        setStandings(data.conferences ?? []);
-        setShowStandings(true);
+      const res = await fetch(`/api/stats/ask?q=${encodeURIComponent(searchQuery)}`);
+      if (!res.ok) throw new Error("Failed");
+      const data: AskResponse = await res.json();
+      setResult(data);
+
+      // Save to history
+      setHistory((prev) => [{ query: searchQuery, result: data }, ...prev.slice(0, 9)]);
+
+      // If we got a player, fetch their full game logs for the detail view
+      if (data.player?.id) {
+        try {
+          const logsRes = await fetch(`/api/stats/player?playerId=${data.player.id}`);
+          if (logsRes.ok) {
+            const logsData = await logsRes.json();
+            setFullGameLogs(logsData.gameLogs ?? null);
+          }
+        } catch { /* optional */ }
       }
     } catch {
-      // Best effort
+      setError("Could not process your question. Try rephrasing.");
+    } finally {
+      setLoading(false);
     }
   }
 
-  const LEADER_CATEGORIES: { key: keyof LeaderData; label: string; stat: string }[] = [
-    { key: "points", label: "Points", stat: "ppg" },
-    { key: "rebounds", label: "Rebounds", stat: "rpg" },
-    { key: "assists", label: "Assists", stat: "apg" },
-    { key: "threes", label: "3-Pointers", stat: "threes" },
-    { key: "steals", label: "Steals", stat: "spg" },
-    { key: "blocks", label: "Blocks", stat: "bpg" },
-  ];
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleAsk();
+    }
+  }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
+    <div className="max-w-3xl mx-auto px-4 py-6">
       {/* ===== SEARCH BAR ===== */}
-      <div className="mb-8">
+      <div className="mb-6">
         <div className="relative">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -171,238 +136,234 @@ export default function StatsPage() {
             </svg>
           </div>
           <input
-            ref={searchRef}
+            ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Search any player... Giannis, LeBron, Wemby"
-            className="w-full bg-bg-card border-2 border-border-subtle rounded-2xl pl-12 pr-4 py-4 text-lg outline-none focus:border-accent-green transition-colors placeholder:text-text-muted"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything... LeBron last 10 games, who leads in 3PM"
+            className="w-full bg-bg-card border-2 border-border-subtle rounded-2xl pl-12 pr-24 py-4 text-lg outline-none focus:border-accent-green transition-colors placeholder:text-text-muted"
           />
-          {searching && (
-            <div className="absolute right-4 top-1/2 -translate-y-1/2">
-              <div className="w-5 h-5 border-2 border-accent-green border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
+          <button
+            onClick={() => handleAsk()}
+            disabled={!query.trim() || loading}
+            className={cn(
+              "absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-xl text-sm font-semibold transition-all",
+              query.trim() && !loading
+                ? "bg-accent-green text-bg-primary"
+                : "bg-bg-hover text-text-muted"
+            )}
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-bg-primary border-t-transparent rounded-full animate-spin" />
+            ) : (
+              "Ask"
+            )}
+          </button>
         </div>
-        <p className="text-xs text-text-muted mt-2 ml-1">
-          Search by player name to see their full stat profile and game log
-        </p>
       </div>
 
-      {/* ===== PLAYER RESULT ===== */}
-      {playerResult && (
-        <div className="mb-8">
-          {/* Player header */}
-          <div className="bg-bg-card border border-accent-green/30 rounded-card p-5 mb-4">
-            <div className="flex items-center gap-4">
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold text-white flex-shrink-0"
-                style={{ backgroundColor: avatarColor(playerResult.name) }}
-              >
-                {getInitials(playerResult.name)}
+      {/* ===== LOADING STATE ===== */}
+      {loading && (
+        <div className="bg-bg-card border border-accent-green/30 rounded-card p-8 text-center mb-6">
+          <div className="w-8 h-8 border-2 border-accent-green border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-text-secondary">Looking up stats...</p>
+        </div>
+      )}
+
+      {/* ===== ERROR ===== */}
+      {error && (
+        <div className="bg-accent-red/10 border border-accent-red/30 rounded-card p-4 mb-6">
+          <p className="text-sm text-accent-red">{error}</p>
+        </div>
+      )}
+
+      {/* ===== RESULT CARD ===== */}
+      {result && !loading && (
+        <div className="mb-8 space-y-4">
+          {/* Headline card */}
+          <div className={cn(
+            "rounded-card p-5 border",
+            result.player
+              ? "bg-bg-card border-accent-green/30"
+              : "bg-bg-card border-border-subtle"
+          )}>
+            {/* Player header */}
+            {result.player && (
+              <div className="flex items-center gap-3 mb-4">
+                <div
+                  className="w-12 h-12 rounded-full flex items-center justify-center text-base font-bold text-white flex-shrink-0"
+                  style={{ backgroundColor: avatarColor(result.player.name) }}
+                >
+                  {getInitials(result.player.name)}
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold">{result.player.name}</h2>
+                  <p className="text-xs text-text-muted">
+                    {result.player.team} · {result.player.position}
+                  </p>
+                </div>
               </div>
-              <div className="flex-1">
-                <h2 className="text-xl font-bold">{playerResult.name}</h2>
-                <p className="text-sm text-text-muted">
-                  {playerResult.team} · {playerResult.position}
-                </p>
+            )}
+
+            {/* Headline */}
+            {!result.player && (
+              <h2 className="text-lg font-bold mb-3">{result.headline}</h2>
+            )}
+
+            {/* Stats grid */}
+            {result.stats.length > 0 && (
+              <div className={cn(
+                "grid gap-4 mb-4",
+                result.stats.length <= 3 ? "grid-cols-3" : "grid-cols-4"
+              )}>
+                {result.stats.map((stat, i) => (
+                  <div key={i} className="text-center">
+                    <div className={cn(
+                      "font-mono text-2xl font-bold",
+                      i === 0 ? "text-accent-green" : "text-text-primary"
+                    )}>
+                      {stat.value}
+                    </div>
+                    <div className="text-[10px] text-text-muted uppercase tracking-wider mt-0.5">
+                      {stat.label}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Answer text */}
+            <p className="text-sm text-text-secondary leading-relaxed">
+              {result.answer}
+            </p>
+          </div>
+
+          {/* Mini game log from AI response */}
+          {result.gamelog && result.gamelog.length > 0 && (
+            <div className="bg-bg-card border border-border-subtle rounded-card overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-border-subtle">
+                <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Recent Games</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border-subtle text-text-muted">
+                      <th className="text-left px-3 py-2 font-medium">Date</th>
+                      <th className="text-left px-2 py-2 font-medium">OPP</th>
+                      <th className="text-center px-2 py-2 font-medium">RES</th>
+                      <th className="text-center px-2 py-2 font-medium text-accent-green">PTS</th>
+                      <th className="text-center px-2 py-2 font-medium">REB</th>
+                      <th className="text-center px-2 py-2 font-medium">AST</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.gamelog.map((g, i) => (
+                      <tr key={i} className="border-b border-border-subtle last:border-0 hover:bg-bg-hover">
+                        <td className="px-3 py-1.5 text-text-muted">{g.date}</td>
+                        <td className="px-2 py-1.5 font-medium">{g.opp}</td>
+                        <td className={cn(
+                          "px-2 py-1.5 text-center font-medium",
+                          g.result?.startsWith("W") ? "text-accent-green" : "text-accent-red"
+                        )}>
+                          {g.result?.charAt(0) ?? "-"}
+                        </td>
+                        <td className={cn(
+                          "px-2 py-1.5 text-center font-mono font-bold",
+                          g.pts >= 30 ? "text-accent-green" : g.pts >= 20 ? "text-text-primary" : "text-text-secondary"
+                        )}>
+                          {g.pts}
+                        </td>
+                        <td className="px-2 py-1.5 text-center font-mono">{g.reb}</td>
+                        <td className="px-2 py-1.5 text-center font-mono">{g.ast}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
+          )}
 
-            {/* Season averages */}
-            <div className="grid grid-cols-4 gap-4 mt-5">
-              {[
-                { label: "PPG", value: playerResult.ppg, color: "text-accent-green" },
-                { label: "RPG", value: playerResult.rpg, color: "text-text-primary" },
-                { label: "APG", value: playerResult.apg, color: "text-text-primary" },
-                { label: "3PM", value: playerResult.threes, color: "text-text-primary" },
-              ].map((stat) => (
-                <div key={stat.label} className="text-center">
-                  <div className={cn("font-mono text-2xl font-bold", stat.color)}>
-                    {stat.value.toFixed(1)}
-                  </div>
-                  <div className="text-[10px] text-text-muted uppercase tracking-wider mt-0.5">
-                    {stat.label}
-                  </div>
-                </div>
+          {/* Full game log (from ESPN, after AI response loads) */}
+          {fullGameLogs && fullGameLogs.length > 0 && result.player && (
+            <StatsPanel
+              playerName={result.player.name}
+              gameLogs={fullGameLogs}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ===== DEFAULT VIEW (no result) ===== */}
+      {!result && !loading && (
+        <>
+          {/* Trending players */}
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wider">
+              Trending Players
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {TRENDING.map((player) => (
+                <button
+                  key={player.name}
+                  onClick={() => {
+                    setQuery(player.query);
+                    handleAsk(player.query);
+                  }}
+                  className="relative rounded-2xl px-3 py-4 overflow-hidden text-left transition-all hover:brightness-90 active:scale-[0.98]"
+                  style={{ backgroundColor: player.color, color: player.textColor }}
+                >
+                  <div className="font-bold text-sm leading-tight">{player.name}</div>
+                  <div className="text-[10px] opacity-70 mt-0.5">{player.team}</div>
+                </button>
               ))}
             </div>
           </div>
 
-          {/* Game log (reuse StatsPanel) */}
-          <StatsPanel
-            playerName={playerResult.name}
-            gameLogs={playerResult.gameLogs}
-          />
-        </div>
-      )}
-
-      {/* ===== NO RESULT MESSAGE ===== */}
-      {query.length >= 2 && !searching && !playerResult && (
-        <div className="bg-bg-card border border-border-subtle rounded-card p-6 text-center mb-8">
-          <p className="text-sm text-text-muted">
-            No player found for &quot;{query}&quot;. Try a different name.
-          </p>
-        </div>
-      )}
-
-      {/* ===== TABS: LEADERS / STANDINGS ===== */}
-      {!playerResult && (
-        <>
-          <div className="flex gap-2 mb-6">
-            <button
-              onClick={() => setActiveTab("leaders")}
-              className={cn(
-                "px-4 py-2 rounded-full text-sm font-medium transition-all",
-                activeTab === "leaders"
-                  ? "bg-accent-green text-bg-primary"
-                  : "bg-bg-card text-text-secondary border border-border-subtle hover:border-accent-green"
-              )}
-            >
-              League Leaders
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("standings");
-                if (standings.length === 0) fetchStandings();
-              }}
-              className={cn(
-                "px-4 py-2 rounded-full text-sm font-medium transition-all",
-                activeTab === "standings"
-                  ? "bg-accent-green text-bg-primary"
-                  : "bg-bg-card text-text-secondary border border-border-subtle hover:border-accent-green"
-              )}
-            >
-              Standings
-            </button>
+          {/* Suggested queries */}
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wider">
+              Try asking
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setQuery(s);
+                    handleAsk(s);
+                  }}
+                  className="px-3 py-2 bg-bg-card border border-border-subtle rounded-full text-xs text-text-secondary hover:border-accent-green hover:text-accent-green transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* ===== LEAGUE LEADERS ===== */}
-          {activeTab === "leaders" && (
-            <>
-              {loadingLeaders ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {[...Array(6)].map((_, i) => (
-                    <div key={i} className="bg-bg-card border border-border-subtle rounded-card p-4 animate-pulse">
-                      <div className="h-4 w-24 bg-bg-hover rounded mb-4" />
-                      <div className="space-y-3">
-                        {[...Array(3)].map((_, j) => (
-                          <div key={j} className="h-3 w-full bg-bg-hover rounded" />
-                        ))}
-                      </div>
+          {/* Search history */}
+          {history.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wider">
+                Recent Searches
+              </h2>
+              <div className="space-y-2">
+                {history.map((h, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setQuery(h.query);
+                      setResult(h.result);
+                    }}
+                    className="w-full text-left bg-bg-card border border-border-subtle rounded-lg px-4 py-3 hover:border-accent-green/30 transition-colors"
+                  >
+                    <div className="text-sm font-medium">{h.query}</div>
+                    <div className="text-xs text-text-muted mt-0.5 truncate">
+                      {h.result.answer?.slice(0, 80)}...
                     </div>
-                  ))}
-                </div>
-              ) : leaders ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {LEADER_CATEGORIES.map(({ key, label, stat }) => (
-                    <div key={key} className="bg-bg-card border border-border-subtle rounded-card p-4">
-                      <h3 className="font-semibold text-sm text-text-secondary mb-3 uppercase tracking-wider">
-                        {label}
-                      </h3>
-                      <div className="space-y-2.5">
-                        {(leaders[key] ?? []).map((player, i) => {
-                          const value = player[stat as keyof LeaderEntry] as number;
-                          return (
-                            <button
-                              key={player.id}
-                              onClick={() => handleSearch(player.name)}
-                              className="w-full flex items-center gap-3 py-1 hover:bg-bg-hover rounded-lg px-1 -mx-1 transition-colors text-left"
-                            >
-                              <span className={cn(
-                                "font-mono text-sm font-bold w-5 text-center",
-                                i === 0 ? "text-accent-green" : i < 3 ? "text-accent-amber" : "text-text-muted"
-                              )}>
-                                {i + 1}
-                              </span>
-                              <div
-                                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
-                                style={{ backgroundColor: avatarColor(player.name) }}
-                              >
-                                {getInitials(player.name)}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium truncate">{player.name}</div>
-                                <div className="text-[10px] text-text-muted">{player.team}</div>
-                              </div>
-                              <span className={cn(
-                                "font-mono text-sm font-bold",
-                                i === 0 ? "text-accent-green" : "text-text-primary"
-                              )}>
-                                {value.toFixed(1)}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-bg-card border border-border-subtle rounded-card p-8 text-center">
-                  <p className="text-sm text-text-muted">Could not load league leaders</p>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ===== STANDINGS ===== */}
-          {activeTab === "standings" && (
-            <div className="space-y-6">
-              {standings.length === 0 ? (
-                <div className="bg-bg-card border border-border-subtle rounded-card p-6 text-center">
-                  <div className="w-6 h-6 border-2 border-accent-green border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-sm text-text-muted">Loading standings...</p>
-                </div>
-              ) : (
-                standings.map((conf) => (
-                  <div key={conf.name} className="bg-bg-card border border-border-subtle rounded-card overflow-hidden">
-                    <div className="px-4 py-3 border-b border-border-subtle">
-                      <h3 className="font-semibold text-sm">{conf.name}</h3>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b border-border-subtle text-text-muted">
-                            <th className="text-left px-4 py-2 font-medium w-8">#</th>
-                            <th className="text-left px-2 py-2 font-medium">Team</th>
-                            <th className="text-center px-2 py-2 font-medium">W</th>
-                            <th className="text-center px-2 py-2 font-medium">L</th>
-                            <th className="text-center px-2 py-2 font-medium">PCT</th>
-                            <th className="text-center px-2 py-2 font-medium">GB</th>
-                            <th className="text-center px-2 py-2 font-medium">STRK</th>
-                            <th className="text-center px-2 py-2 font-medium">PPG</th>
-                            <th className="text-center px-2 py-2 font-medium">OPP</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {conf.teams.map((team, i) => (
-                            <tr key={team.abbreviation} className="border-b border-border-subtle last:border-0 hover:bg-bg-hover">
-                              <td className="px-4 py-2 font-mono text-text-muted">{i + 1}</td>
-                              <td className="px-2 py-2 font-medium whitespace-nowrap">
-                                <span className="font-mono text-text-muted mr-1.5">{team.abbreviation}</span>
-                                <span className="hidden sm:inline">{team.name}</span>
-                              </td>
-                              <td className="px-2 py-2 text-center font-mono text-accent-green">{team.wins}</td>
-                              <td className="px-2 py-2 text-center font-mono text-accent-red">{team.losses}</td>
-                              <td className="px-2 py-2 text-center font-mono">{team.winPct}</td>
-                              <td className="px-2 py-2 text-center font-mono text-text-muted">{team.gb}</td>
-                              <td className={cn(
-                                "px-2 py-2 text-center font-mono text-xs",
-                                team.streak?.startsWith("W") ? "text-accent-green" : "text-accent-red"
-                              )}>
-                                {team.streak}
-                              </td>
-                              <td className="px-2 py-2 text-center font-mono">{team.ppg}</td>
-                              <td className="px-2 py-2 text-center font-mono text-text-muted">{team.oppPpg}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ))
-              )}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </>
