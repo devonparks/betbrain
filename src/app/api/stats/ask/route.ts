@@ -5,6 +5,8 @@ import {
   getESPNTodayGames,
 } from "@/lib/stats-api";
 import { rateLimit, getIP, rateLimitResponse } from "@/lib/rate-limit";
+// AI generation can take ~30s; Vercel's default function timeout is far lower.
+export const maxDuration = 60;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -122,7 +124,7 @@ Last 10 threes: [${last10.map((g) => g.fg3m).join(", ")}]`;
 
     // Step 3: Ask Claude to answer the question using the data
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-opus-4-8",
       max_tokens: 800,
       system: `You are a sports stats assistant. Answer questions using ONLY the data provided below. Be concise and specific — cite exact numbers.
 

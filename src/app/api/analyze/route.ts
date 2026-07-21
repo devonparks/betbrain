@@ -6,6 +6,9 @@ import { rateLimit, getIP, rateLimitResponse } from "@/lib/rate-limit";
 import { OddsResponse } from "@/lib/types";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { writeBestEffort } from "@/lib/firestore-safe";
+// AI generation can take ~30s; Vercel's default function timeout is far lower.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const ip = getIP(req);
@@ -67,9 +70,12 @@ export async function POST(req: NextRequest) {
 
     const analysis = await analyzeGame(gameOdds, injuries, statsContext);
 
-    // Cache the analysis
-    try {
-      await setDoc(doc(db, "analyses", cacheKey), {
+    // Cache the analysis. Deliberately NOT awaited: the caller already has the
+    // analysis, and an unreachable Firestore leaves this promise unsettled
+    // forever (a try/catch does not help — it never rejects, so nothing is
+    // caught). Awaiting it here hung the whole route for 240s.
+    writeBestEffort(
+      setDoc(doc(db, "analyses", cacheKey), {
         gameData: {
           id: gameOdds.id,
           homeTeam: gameOdds.home_team,
@@ -80,10 +86,9 @@ export async function POST(req: NextRequest) {
         createdAt: new Date(),
         updatedAt: new Date(),
         result: "pending",
-      });
-    } catch {
-      // Cache write failed — analysis still returned
-    }
+      }),
+      `analyses/${cacheKey}`
+    );
 
     return NextResponse.json(analysis);
   } catch (err) {

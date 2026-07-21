@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    // Without an explicit target, tsc defaults to ES5 and rejects Map/Set
+    // iteration. Next.js compiles with SWC and is unaffected; this only makes
+    // `tsc --noEmit` agree with what actually ships.
+    "target": "ES2020",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
@@ -10,6 +14,11 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // Lets tools/*.ts import the real modules with explicit .ts extensions, so
+    // dev scripts can be executed directly by Node 24's native type stripping
+    // (`node tools/run-backtest.ts`) instead of duplicating app logic.
+    // Safe with noEmit: purely permissive, and only used by tools/.
+    "allowImportingTsExtensions": true,
     "jsx": "preserve",
     "incremental": true,
     "plugins": [

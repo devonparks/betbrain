@@ -87,7 +87,7 @@ ${additionalContext ? `ADDITIONAL CONTEXT:\n${additionalContext}` : ""}
 Provide your full analysis as JSON matching the GameAnalysis interface.`;
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-opus-4-8",
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }],
@@ -172,7 +172,7 @@ export async function generateQuickTake(
   const bestOdds = extractBestOdds(game);
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-opus-4-8",
     max_tokens: 200,
     messages: [
       {
@@ -209,7 +209,7 @@ export async function generateDailyPick(
     .join("\n");
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-opus-4-8",
     max_tokens: 1500,
     system:
       "You are BetBrain. Pick the single safest, highest-value bet from today's slate. Be specific with stats. Respond as JSON: {gameId, pick, confidence (0-100), analysis (2-3 paragraphs)}",

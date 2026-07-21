@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+// AI generation can take ~30s; Vercel's default function timeout is far lower.
+export const maxDuration = 60;
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -71,7 +73,7 @@ Respond in valid JSON matching this format:
 }`;
 
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-opus-4-8",
       max_tokens: 2000,
       system:
         "You are BetBrain's parlay grading engine. Grade parlays honestly — most parlays are bad bets and you should say so. Be specific with stats and reasoning. Respond in valid JSON only, no markdown.",
