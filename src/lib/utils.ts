@@ -243,3 +243,14 @@ export function formString(
 export function cn(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(" ");
 }
+
+/**
+ * The NBA regular season runs roughly late October -> mid April, with the
+ * playoffs into June. July -> September there are simply no games, and an empty
+ * board is correct behaviour rather than a bug. Used to tell the user which one
+ * they're looking at.
+ */
+export function isNbaOffseason(date: Date = new Date()): boolean {
+  const m = date.getMonth(); // 0 = Jan
+  return m >= 6 && m <= 8; // Jul, Aug, Sep
+}

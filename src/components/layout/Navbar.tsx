@@ -6,15 +6,13 @@ import { useUserStore } from "@/stores/userStore";
 import { SportKey } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+// BetBrain is NBA-ONLY by strategic decision (2026-07-20). Every sport bets
+// differently — NFL anytime-TDs, hockey alt puck lines — and the edges don't
+// transfer. Other sports come back only once the NBA product is genuinely good.
+// The underlying multi-sport plumbing (SPORTS in types.ts, the odds client) is
+// intentionally left intact, so re-enabling one is a one-line change here.
 const SPORT_TABS: { key: SportKey; label: string }[] = [
   { key: "nba", label: "NBA" },
-  { key: "nfl", label: "NFL" },
-  { key: "mlb", label: "MLB" },
-  { key: "nhl", label: "NHL" },
-  { key: "ncaab", label: "NCAAB" },
-  { key: "ncaaf", label: "NCAAF" },
-  { key: "ufc", label: "UFC" },
-  { key: "soccer_epl", label: "Soccer" },
 ];
 
 const BOOKS = [
@@ -31,6 +29,7 @@ const NAV_LINKS = [
   { href: "/stats", label: "Stats", exact: false },
   { href: "/predictions", label: "Predictions", exact: false },
   { href: "/builder", label: "Builder", exact: false },
+  { href: "/hedge", label: "Hedge", exact: false },
   { href: "/chat", label: "Chat", exact: false },
   { href: "/profile", label: "Profile", exact: false },
 ];

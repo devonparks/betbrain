@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useOdds } from "@/hooks/useOdds";
 import { useUserStore } from "@/stores/userStore";
 import { GameCard } from "@/components/games/GameCard";
 import { ConfidenceMeter } from "@/components/analysis/ConfidenceMeter";
-import { isGameLive, cn } from "@/lib/utils";
+import { isGameLive, cn, isNbaOffseason } from "@/lib/utils";
 import { DailyPick, DailyRecap } from "@/lib/types";
 
 export default function TodaysBoard() {
@@ -192,9 +193,22 @@ export default function TodaysBoard() {
       {/* Empty state */}
       {!loading && games.length === 0 && !error && (
         <div className="text-center py-20">
-          <h3 className="text-lg font-semibold mb-1">No Games Today</h3>
-          <p className="text-sm text-text-muted">
-            Check back later or switch sports using the tabs above.
+          <h3 className="text-lg font-semibold mb-1">
+            {isNbaOffseason() ? "NBA Offseason" : "No Games Today"}
+          </h3>
+          <p className="text-sm text-text-muted max-w-sm mx-auto">
+            {isNbaOffseason() ? (
+              <>
+                No games until the season tips off in late October. The tools that
+                don&apos;t need a live slate still work —{" "}
+                <Link href="/hedge" className="text-accent-blue hover:text-accent-green">
+                  the hedge calculator
+                </Link>{" "}
+                is one.
+              </>
+            ) : (
+              "Check back later — the board fills in as books post lines."
+            )}
           </p>
         </div>
       )}
